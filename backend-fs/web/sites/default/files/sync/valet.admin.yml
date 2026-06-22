@@ -1,0 +1,9 @@
+_core:
+  default_config_hash: _F7UrNpW82IwATeWI_6u_Vm1D5_DCkAxh-LEhNTmprw
+plugins:
+  menu:
+    status: true
+    settings:
+      menus:
+        admin: admin
+        devel: devel

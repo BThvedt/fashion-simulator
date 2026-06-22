@@ -1,0 +1,17 @@
+{
+  "name": "valet",
+  "description": "An Alfred-inspired navigation system for Drupal.",
+  "private": true,
+  "scripts": {
+    "build:ts": "esbuild src/ts/valet.ts --bundle --format=iife --minify --sourcemap --target=es2015 --outfile=js/valet.js",
+    "build:css": "sass src/scss/valet.scss css/valet.css --style=compressed --source-map",
+    "build": "npm run build:ts && npm run build:css",
+    "watch:ts": "esbuild src/ts/valet.ts --bundle --format=iife --minify --sourcemap --target=es2015 --outfile=js/valet.js --watch",
+    "watch:css": "sass src/scss/valet.scss css/valet.css --style=compressed --source-map --watch",
+    "watch": "npm run watch:ts & npm run watch:css"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "sass": "^1.85.0"
+  }
+}
