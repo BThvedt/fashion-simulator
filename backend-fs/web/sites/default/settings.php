@@ -915,7 +915,7 @@ if (getenv('DB_HOST')) {
   ];
   $settings['hash_salt'] = getenv('HASH_SALT');
 
-  $settings['trusted_host_patterns'] = ['^acme\.do-bkend\.click$'];
+  $settings['trusted_host_patterns'] = ['^fashionsimulator\.do-bkend\.click$'];
 
   $settings['reverse_proxy'] = TRUE;
   $settings['reverse_proxy_addresses'] = [$_SERVER['REMOTE_ADDR'] ?? ''];
@@ -925,3 +925,5 @@ if (getenv('DB_HOST')) {
     | \Symfony\Component\HttpFoundation\Request::HEADER_X_FORWARDED_PORT
     | \Symfony\Component\HttpFoundation\Request::HEADER_X_FORWARDED_PROTO;
 }
+
+$settings['config_sync_directory'] = '../config/sync';
