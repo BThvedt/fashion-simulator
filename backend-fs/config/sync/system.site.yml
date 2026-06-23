@@ -1,0 +1,15 @@
+_core:
+  default_config_hash: ijfbzDTN4CbE7Sr-6ubWzy_t1vH4OtU1doNCLssVz-4
+langcode: en
+uuid: bf2dc0fd-f521-440e-bf90-d4f46faf04f1
+name: 'fashion simulator'
+mail: bthvedt@gmail.com
+slogan: ''
+page:
+  403: ''
+  404: ''
+  front: /node
+admin_compact_mode: false
+weight_select_max: 100
+default_langcode: en
+mail_notification: null
