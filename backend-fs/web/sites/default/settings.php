@@ -903,6 +903,8 @@ if (file_exists($app_root . '/' . $site_path . '/settings.ddev.php')) {
   include $app_root . '/' . $site_path . '/settings.ddev.php';
 }
 
+// adding a comment
+
 // Production: driven by env vars from docker-compose.prod.yml.
 if (getenv('DB_HOST')) {
   $databases['default']['default'] = [
