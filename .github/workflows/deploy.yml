@@ -20,7 +20,7 @@ jobs:
             set -e
             cd /home/deploy/fashion-simulator
             git pull origin main
-            cd backend
+            cd backend-fs
             docker compose -f docker-compose.prod.yml up -d
             docker compose -f docker-compose.prod.yml exec -T php composer install --no-dev --optimize-autoloader
             docker compose -f docker-compose.prod.yml exec -T php vendor/bin/drush deploy
