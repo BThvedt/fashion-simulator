@@ -3,7 +3,7 @@ FROM php:8.3-fpm
 # System libraries needed to build the Drupal PHP extensions
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git unzip libzip-dev libpng-dev libjpeg-dev libfreetype6-dev \
-        libwebp-dev libxml2-dev libonig-dev \
+        libwebp-dev libxml2-dev libonig-dev libicu-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
     && docker-php-ext-install -j"$(nproc)" \
         gd opcache pdo pdo_mysql zip intl bcmath \
