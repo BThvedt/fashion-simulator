@@ -1,0 +1,14 @@
+{
+  "name": "drupal/simple_oauth_password_grant",
+  "description": "Provides the password grant for the simple_oauth module",
+  "type": "drupal-module",
+  "require": {
+    "drupal/simple_oauth": "^6",
+    "php": ">=8.1"
+  },
+  "require-dev": {
+    "drupal/consumers": "1.x-dev#c6d64f1b",
+    "drupal/simple_oauth": "^6.0@beta"
+  },
+  "license": "GPL-2.0-or-later"
+}

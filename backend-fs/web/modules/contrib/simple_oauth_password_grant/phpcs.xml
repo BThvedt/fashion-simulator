@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+
+<ruleset name="Drupal coding standards">
+  <arg name="extensions" value="php,module,inc,install,test,profile,theme,css,info,txt,md,yml"/>
+
+  <exclude-pattern>*/.git/*</exclude-pattern>
+  <exclude-pattern>*/vendor/*</exclude-pattern>
+
+  <rule ref="Drupal"/>
+  <rule ref="DrupalPractice"/>
+
+  <!-- Additionally require strict types. -->
+  <rule ref="Generic.PHP.RequireStrictTypes"/>
+</ruleset>
+
+
