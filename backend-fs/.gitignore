@@ -1,0 +1,6 @@
+/vendor/
+/keys/
+web/sites/default/files/
+web/sites/*/settings*.php
+web/sites/*/services*.yml
+.ddev/

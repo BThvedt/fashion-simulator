@@ -1,0 +1,57 @@
+---
+description: How to install and use shadcn/ui components in the frontend
+globs: ["frontend/**/*.tsx", "frontend/**/*.jsx"]
+alwaysApply: false
+---
+
+# shadcn/ui Component Patterns
+
+## Installing shadcn
+
+If shadcn is not yet initialised in the project, run from `frontend/`:
+
+```bash
+npx shadcn@latest init
+npx shadcn@latest add <component>
+```
+
+Components are generated into `frontend/src/components/ui/`. Never copy-paste component code from the docs manually.
+
+## Adding new components
+
+Always use the CLI — never hand-write shadcn primitives from scratch:
+
+```bash
+# ✅ GOOD
+npx shadcn@latest add button dialog input
+
+# ❌ BAD – hand-rolling a Button that shadcn already provides
+export function Button({ children }) { return <button>{children}</button>; }
+```
+
+## Extending components
+
+Customise via `className` + `cn()`. Do **not** edit the generated files in `components/ui/` directly, as they may be regenerated.
+
+```tsx
+// ✅ GOOD – extend at the call site
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
+<Button className={cn("w-full rounded-full", isActive && "bg-primary")} />
+
+// ❌ BAD – modifying components/ui/button.tsx
+```
+
+## Prefer shadcn primitives
+
+Use shadcn components for common UI elements before reaching for raw HTML or third-party libraries:
+
+| Need | Use |
+|------|-----|
+| Clickable action | `Button` |
+| Text field | `Input` |
+| Overlay | `Dialog` / `Sheet` |
+| Dropdown | `DropdownMenu` / `Select` |
+| Notification | `Sonner` |
+| Loading | `Skeleton` |
