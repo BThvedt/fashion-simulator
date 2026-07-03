@@ -1,0 +1,153 @@
+---
+description: JSON:API data-access conventions: drupalFetch server-side only, Accept header, sparse fieldsets, include for relationships, response envelope handling
+globs: ["frontend/**/*.ts", "frontend/**/*.tsx"]
+alwaysApply: false
+---
+
+# JSON:API Data Access
+
+All Drupal data fetching lives in `src/lib/drupal.ts` and is called exclusively from
+Server Components, Server Actions, or Route Handlers.
+
+## Two fetch helpers — pick the right one
+
+| Helper | When to use |
+|---|---|
+| `drupalFetch(path, init?)` | Authenticated requests — reads `access_token` httpOnly cookie |
+| `drupalPublicFetch(path, init?)` | Public read-only endpoints — no token required |
+
+Both helpers MUST set `Accept: application/vnd.api+json` and prefix with
+`process.env.NEXT_PUBLIC_API_URL`. NEVER construct the base URL inline at the call site.
+
+```ts
+// ✅ GOOD – src/lib/drupal.ts
+import { cookies } from "next/headers";
+
+const BASE = process.env.NEXT_PUBLIC_API_URL; // http://fashion-simulator.ddev.site
+
+export async function drupalFetch(path: string, init: RequestInit = {}) {
+  const token = cookies().get("access_token")?.value;
+  return fetch(`${BASE}${path}`, {
+    ...init,
+    headers: {
+      Accept: "application/vnd.api+json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init.headers,
+    },
+  });
+}
+
+export async function drupalPublicFetch(path: string, init: RequestInit = {}) {
+  return fetch(`${BASE}${path}`, {
+    ...init,
+    headers: { Accept: "application/vnd.api+json", ...init.headers },
+  });
+}
+```
+
+## NEVER fetch Drupal directly from a Client Component
+
+NEVER call `fetch`, `drupalFetch`, or `drupalPublicFetch` inside a `"use client"` file.
+ALWAYS fetch in a Server Component (or Server Action) and pass plain data down as props.
+
+```tsx
+// ✅ GOOD – Server Component fetches, Client Component receives plain props
+// app/articles/page.tsx  (no "use client" directive)
+import { drupalPublicFetch } from "@/lib/drupal";
+
+export default async function ArticlesPage() {
+  const res = await drupalPublicFetch("/jsonapi/node/article?...");
+  const { data } = await res.json() as JsonApiList<Article>;
+  return <ArticleList articles={data} />;   // ArticleList may be "use client"
+}
+
+// ❌ BAD – fetching from a Client Component
+"use client";
+useEffect(() => {
+  fetch(`${process.env.NEXT_PUBLIC_API_URL}/jsonapi/node/article`).then(...);
+}, []);
+```
+
+## Use sparse fieldsets — never fetch all fields
+
+ALWAYS request only the fields you render with `fields[resource_type]=field1,field2`.
+NEVER omit `fields[...]` and rely on Drupal returning everything.
+
+```ts
+// ✅ GOOD – only the fields the component actually uses
+const path =
+  "/jsonapi/node/article" +
+  "?fields[node--article]=title,body,field_tags,field_image" +
+  "&fields[taxonomy_term--tags]=name" +
+  "&fields[file--file]=uri";
+
+// ❌ BAD – fetches every field on every relationship
+const path = "/jsonapi/node/article";
+```
+
+## Use `include` to load relationships in one request
+
+ALWAYS use `include=rel1,rel2` to sideload related resources.
+NEVER make a second fetch to resolve a relationship UUID manually.
+
+```ts
+// ✅ GOOD – one request returns article + its tags + image file
+const path =
+  "/jsonapi/node/article" +
+  "?fields[node--article]=title,body,field_tags,field_image" +
+  "&fields[taxonomy_term--tags]=name" +
+  "&fields[file--file]=uri" +
+  "&include=field_tags,field_image.field_media_image";
+
+// ❌ BAD – two round trips to resolve the tag
+const article = await drupalPublicFetch("/jsonapi/node/article/uuid");
+const tag = await drupalPublicFetch(`/jsonapi/taxonomy_term/tags/${article.data.relationships.field_tags.data[0].id}`);
+```
+
+## Handle the JSON:API response envelope
+
+JSON:API responses always wrap resources in `data`; sideloaded resources are in `included`.
+ALWAYS type responses against the envelope. NEVER access `response.title` directly.
+
+```ts
+// Minimal envelope types — expand as needed in src/lib/drupal.ts
+interface JsonApiResource<T = Record<string, unknown>> {
+  id: string;
+  type: string;
+  attributes: T;
+  relationships?: Record<string, { data: { id: string; type: string } | { id: string; type: string }[] }>;
+}
+
+interface JsonApiList<T = Record<string, unknown>> {
+  data: JsonApiResource<T>[];
+  included?: JsonApiResource[];
+  links?: { next?: { href: string }; prev?: { href: string } };
+}
+
+interface JsonApiSingle<T = Record<string, unknown>> {
+  data: JsonApiResource<T>;
+  included?: JsonApiResource[];
+}
+
+// ✅ GOOD – typed envelope access
+const { data, included } = await res.json() as JsonApiList<{ title: string; body: { value: string } }>;
+const title = data[0].attributes.title;
+
+// ❌ BAD – treating the response as a flat object
+const { title } = await res.json();
+```
+
+## Pagination via `links.next`
+
+When iterating all records, follow `links.next.href` rather than incrementing `page[offset]` manually.
+
+```ts
+// ✅ GOOD
+let url: string | undefined = `${BASE}/jsonapi/node/article?page[limit]=50`;
+while (url) {
+  const res = await drupalPublicFetch(url.replace(BASE, ""));
+  const body = await res.json() as JsonApiList;
+  // process body.data ...
+  url = body.links?.next?.href;
+}
+```

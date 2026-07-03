@@ -1,0 +1,109 @@
+---
+description: BFF auth-flow invariants: httpOnly cookies, server-only secrets, drupalFetch server-side, credential exchange in Server Actions/Route Handlers only
+globs: ["frontend/**/*.ts", "frontend/**/*.tsx"]
+alwaysApply: false
+---
+
+# BFF Auth-Flow Invariants
+
+## Tokens live in httpOnly cookies only
+
+NEVER store access tokens, refresh tokens, or session identifiers in `localStorage`, `sessionStorage`, or any JS-accessible client state.
+ALWAYS set tokens via `cookies()` (Server Action / Route Handler) with `httpOnly: true`, `sameSite: "lax"`, `secure: true`.
+
+```ts
+// ✅ GOOD – token written server-side, never reachable from JS
+import { cookies } from "next/headers";
+
+cookies().set("access_token", tokenResponse.access_token, {
+  httpOnly: true,
+  sameSite: "lax",
+  secure: process.env.NODE_ENV === "production",
+  path: "/",
+});
+
+// ❌ BAD – exposes token to any JS on the page
+localStorage.setItem("access_token", tokenResponse.access_token);
+```
+
+## `OAUTH_CLIENT_SECRET` is server-only — no `NEXT_PUBLIC_` prefix
+
+NEVER expose `OAUTH_CLIENT_SECRET` or `OAUTH_CLIENT_ID` under a `NEXT_PUBLIC_` name.
+ALWAYS access them as bare `process.env.OAUTH_CLIENT_SECRET` / `process.env.OAUTH_CLIENT_ID` inside Server Actions, Route Handlers, or `src/lib/` modules that are never imported by Client Components.
+
+```ts
+// ✅ GOOD – read only on the server
+const secret = process.env.OAUTH_CLIENT_SECRET; // defined without NEXT_PUBLIC_
+
+// ❌ BAD – would be bundled into the client
+const secret = process.env.NEXT_PUBLIC_OAUTH_CLIENT_SECRET;
+```
+
+## All authenticated Drupal calls go through `drupalFetch` server-side
+
+NEVER call `fetch(process.env.NEXT_PUBLIC_API_URL, ...)` directly from a Client Component or with a bare token string.
+ALWAYS use a `drupalFetch` helper (in `src/lib/drupal.ts` or similar) that:
+1. Reads the `access_token` cookie via `cookies()`.
+2. Attaches `Authorization: Bearer <token>` on the server.
+3. Is called only from Server Components, Server Actions, or Route Handlers.
+
+```ts
+// ✅ GOOD – drupalFetch used inside a Server Component
+import { drupalFetch } from "@/lib/drupal";
+
+export default async function ProductPage() {
+  const data = await drupalFetch("/jsonapi/node/product");
+  return <pre>{JSON.stringify(data)}</pre>;
+}
+
+// ❌ BAD – token read from client state and fetch made from a Client Component
+"use client";
+const token = localStorage.getItem("access_token");
+const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/jsonapi/node/product`, {
+  headers: { Authorization: `Bearer ${token}` },
+});
+```
+
+## Credential exchange happens only in Server Actions or Route Handlers
+
+NEVER POST OAuth credentials (`client_id`, `client_secret`, username, password) from a Client Component.
+ALWAYS perform the token exchange inside:
+- A Server Action (`"use server"` function), or
+- A Route Handler (`app/api/**/route.ts`).
+
+```ts
+// ✅ GOOD – credential exchange in a Server Action
+"use server";
+import { cookies } from "next/headers";
+
+export async function login(formData: FormData) {
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/oauth/token`, {
+    method: "POST",
+    body: new URLSearchParams({
+      grant_type: "password",
+      client_id: process.env.OAUTH_CLIENT_ID!,
+      client_secret: process.env.OAUTH_CLIENT_SECRET!,
+      username: formData.get("username") as string,
+      password: formData.get("password") as string,
+    }),
+  });
+  const token = await res.json();
+  cookies().set("access_token", token.access_token, { httpOnly: true, sameSite: "lax" });
+}
+
+// ❌ BAD – credentials sent from the browser
+"use client";
+await fetch("/oauth/token", {
+  method: "POST",
+  body: JSON.stringify({ client_secret: "5R83e1ur9i4z", ... }),
+});
+```
+
+## Summary checklist
+
+| Concern | Rule |
+|---|---|
+| Token storage | `httpOnly` cookie only — never `localStorage` |
+| `OAUTH_CLIENT_SECRET` | No `NEXT_PUBLIC_` prefix — server env only |
+| Drupal API calls | Via `drupalFetch` server-side only |
+| OAuth exchange | Server Action or Route Handler only |
