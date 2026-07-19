@@ -1,0 +1,77 @@
+---
+description: Frontend color scheme — always style with semantic Tailwind tokens, never hardcode colors
+globs: ["frontend/**/*.tsx", "frontend/**/*.jsx", "frontend/**/*.css"]
+alwaysApply: false
+---
+
+# Color Scheme — "Atelier"
+
+An editorial light/dark palette: warm neutral base with a refined plum accent.
+Tokens are defined once in `frontend/src/app/globals.css` as OKLCH CSS variables
+and exposed to Tailwind via `@theme inline`. They are shadcn/ui compatible.
+
+## Golden rule: use semantic tokens, never raw colors
+
+Style with the semantic utilities below. NEVER hardcode a color scale
+(`zinc-900`, `gray-100`, `bg-white`, `#0a0a0a`, `text-red-600`, …) and NEVER
+sprinkle `dark:` variants for color — the tokens already switch with the theme.
+
+```tsx
+// ✅ GOOD — semantic, theme-aware, no dark: needed
+<div className="bg-background text-foreground">
+  <button className="bg-primary text-primary-foreground hover:bg-primary/90" />
+  <p className="text-muted-foreground" />
+  <span className="border border-border" />
+</div>
+
+// ❌ BAD — hardcoded scales + manual dark: variants
+<div className="bg-white dark:bg-black text-zinc-900 dark:text-zinc-100">
+  <button className="bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900" />
+</div>
+```
+
+## Available tokens
+
+| Utility (bg-/text-/border-)          | Use for                                   |
+|--------------------------------------|-------------------------------------------|
+| `background` / `foreground`          | Page surface and default text             |
+| `card` / `card-foreground`           | Raised panels, sheets, modals             |
+| `popover` / `popover-foreground`     | Floating menus, popovers, tooltips        |
+| `primary` / `primary-foreground`     | Primary actions, emphasis (the plum)      |
+| `secondary` / `secondary-foreground` | Secondary buttons, subtle fills           |
+| `muted` / `muted-foreground`         | Muted backgrounds and de-emphasized text  |
+| `accent` / `accent-foreground`       | Hover states, highlights                  |
+| `destructive` / `destructive-foreground` | Errors, delete/danger actions         |
+| `border`, `input`, `ring`            | Borders, input borders, focus rings       |
+
+Radius: use `rounded-sm|md|lg|xl` (driven by the `--radius` token) for
+consistency; pill controls stay `rounded-full`.
+
+- `*-foreground` is the text/icon color that sits **on top of** its base
+  (e.g. `text-primary-foreground` on `bg-primary`).
+- Adjust opacity inline for hover/disabled: `bg-primary/90`, `border-border/60`.
+
+## Dark mode
+
+Dark mode is **class-based**: the `.dark` class on `<html>` swaps the token
+values (see the `.dark` block and `@custom-variant dark` in `globals.css`).
+Because components use semantic tokens, they adapt with zero extra markup — do
+NOT scatter `dark:` color variants through components.
+
+The theme is controlled by a dependency-free switcher:
+
+- An inline script in `src/app/layout.tsx` applies the persisted choice
+  (`localStorage.theme`) or the system preference before first paint (no FOUC).
+  `<html>` has `suppressHydrationWarning` because the script mutates its class.
+- `src/components/ThemeToggle.tsx` (a `role="switch"` button) flips the `.dark`
+  class and persists the choice to `localStorage.theme`.
+
+Theme preference in `localStorage` is fine — but per the BFF auth rule, NEVER
+put tokens or credentials there.
+
+## Changing the palette
+
+Edit only the CSS variables in `frontend/src/app/globals.css` (the `:root` and
+`prefers-color-scheme: dark` blocks). Never redefine colors in components.
+Keep new colors in OKLCH and provide both a light and a dark value. When shadcn
+components are added, they consume these same tokens automatically.

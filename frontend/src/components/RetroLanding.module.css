@@ -1,0 +1,298 @@
+.page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  color: #00ff00;
+  font-family: "Comic Sans MS", "Chalkboard SE", cursive, sans-serif;
+  background-color: #000033;
+  background-image:
+    radial-gradient(1px 1px at 20px 30px, #fff, transparent),
+    radial-gradient(1px 1px at 60px 90px, #ff00ff, transparent),
+    radial-gradient(1px 1px at 120px 50px, #00ffff, transparent),
+    radial-gradient(2px 2px at 160px 120px, #ffff00, transparent);
+  background-size: 200px 160px;
+  text-align: center;
+  overflow-x: hidden;
+}
+
+/* Scrolling marquee banner */
+.marqueeBar {
+  border-top: 3px ridge #ff00ff;
+  border-bottom: 3px ridge #ff00ff;
+  background: #000000;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 6px 0;
+}
+
+.marqueeText {
+  display: inline-block;
+  padding-left: 100%;
+  font-weight: bold;
+  color: #ffff00;
+  letter-spacing: 2px;
+  animation: marquee 18s linear infinite;
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 32px 16px 48px;
+}
+
+.globe {
+  font-size: 56px;
+  animation: spin 4s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.title {
+  font-size: clamp(2.2rem, 8vw, 4.5rem);
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  background: linear-gradient(
+    90deg,
+    #ff0000,
+    #ff9900,
+    #ffff00,
+    #33ff00,
+    #00ffff,
+    #3300ff,
+    #ff00ff,
+    #ff0000
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(3px 3px 0 #000);
+  animation: rainbow 6s linear infinite;
+  margin: 0;
+}
+
+@keyframes rainbow {
+  to {
+    background-position: 200% center;
+  }
+}
+
+.tagline {
+  color: #00ffff;
+  font-size: 1.1rem;
+  font-weight: bold;
+}
+
+.blink {
+  animation: blink 1s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+/* Under construction sign */
+.construction {
+  font-weight: bold;
+  color: #000;
+  padding: 8px 18px;
+  border: 3px solid #000;
+  background: repeating-linear-gradient(
+    45deg,
+    #ffcc00,
+    #ffcc00 12px,
+    #000 12px,
+    #000 24px
+  );
+  text-shadow:
+    1px 1px 0 #fff,
+    -1px -1px 0 #fff;
+  animation: wobble 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes wobble {
+  from {
+    transform: rotate(-1.5deg);
+  }
+  to {
+    transform: rotate(1.5deg);
+  }
+}
+
+/* The big beveled Windows-95 style login button */
+.enterWrap {
+  position: relative;
+  margin: 10px 0;
+}
+
+.enterBtn {
+  display: inline-block;
+  font-family: inherit;
+  font-size: clamp(1.5rem, 5vw, 2.5rem);
+  font-weight: 900;
+  color: #000080;
+  text-decoration: none;
+  padding: 18px 40px;
+  background: #c0c0c0;
+  border: 6px outset #f0f0f0;
+  box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+  animation: btnflash 0.9s steps(1) infinite;
+}
+
+.enterBtn:hover {
+  color: #ff0000;
+}
+
+.enterBtn:active {
+  border-style: inset;
+  transform: translate(3px, 3px);
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.6);
+}
+
+@keyframes btnflash {
+  50% {
+    color: #ff0000;
+    background: #d8d8d8;
+  }
+}
+
+.newBadge {
+  position: absolute;
+  top: -18px;
+  right: -22px;
+  z-index: 2;
+  font-size: 0.8rem;
+  font-weight: 900;
+  color: #fff;
+  background: #ff0000;
+  border: 2px solid #ffff00;
+  border-radius: 50%;
+  width: 46px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(-15deg);
+  animation: pulse 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes pulse {
+  from {
+    transform: rotate(-15deg) scale(1);
+  }
+  to {
+    transform: rotate(-15deg) scale(1.18);
+  }
+}
+
+/* Rainbow divider */
+.rainbowHr {
+  width: min(90%, 520px);
+  height: 6px;
+  border: 0;
+  background: linear-gradient(
+    90deg,
+    #ff0000,
+    #ffff00,
+    #00ff00,
+    #00ffff,
+    #ff00ff,
+    #ff0000
+  );
+  background-size: 200% auto;
+  animation: rainbow 3s linear infinite;
+}
+
+/* Visitor counter */
+.counter {
+  color: #ffffff;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.counterDigits {
+  font-family: "Courier New", monospace;
+  font-weight: bold;
+  letter-spacing: 4px;
+  color: #00ff00;
+  background: #000;
+  border: 2px inset #444;
+  padding: 3px 8px;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  font-size: 0.75rem;
+}
+
+.badge {
+  color: #000;
+  background: #c0c0c0;
+  border: 2px outset #eee;
+  padding: 4px 8px;
+  font-weight: bold;
+}
+
+.footer {
+  border-top: 3px ridge #ff00ff;
+  background: #000;
+  color: #888;
+  font-size: 0.75rem;
+  padding: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: center;
+  justify-content: center;
+}
+
+.footer a {
+  color: #00ffff;
+}
+
+.mail {
+  animation: pulse 0.8s ease-in-out infinite alternate;
+  display: inline-block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .globe,
+  .marqueeText,
+  .title,
+  .blink,
+  .construction,
+  .enterBtn,
+  .newBadge,
+  .rainbowHr,
+  .mail {
+    animation: none;
+  }
+}

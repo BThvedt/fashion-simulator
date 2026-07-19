@@ -27,9 +27,9 @@ export async function login(
     return { error: "Username and password are required." };
   }
 
-  const res = await fetch(
-    `${process.env.NEXT_PUBLIC_API_URL}/oauth/token`,
-    {
+  let res: Response;
+  try {
+    res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/oauth/token`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -39,12 +39,26 @@ export async function login(
         username,
         password,
       }),
+    });
+  } catch {
+    return {
+      error: "Unable to reach the server. Please try again in a moment.",
+    };
+  }
+
+  let body: TokenResponse | null = null;
+  try {
+    body = (await res.json()) as TokenResponse;
+  } catch {
+    body = null;
+  }
+
+  if (!res.ok || !body || body.error) {
+    if (res.status >= 500 || !body) {
+      return {
+        error: "The server is currently unavailable. Please try again later.",
+      };
     }
-  );
-
-  const body = (await res.json()) as TokenResponse;
-
-  if (!res.ok || body.error) {
     return {
       error: body.error_description ?? "Invalid credentials. Please try again.",
     };
