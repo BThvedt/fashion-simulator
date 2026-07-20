@@ -1,0 +1,10 @@
+services:
+  fashion_video.uploader:
+    class: Drupal\fashion_video\FashionVideoUploader
+    arguments:
+      - '@entity_type.manager'
+      - '@file.repository'
+      - '@file_system'
+      - '@config.factory'
+      - '@s3fs'
+      - '@file_url_generator'

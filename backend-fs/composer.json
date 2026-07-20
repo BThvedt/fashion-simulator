@@ -21,6 +21,7 @@
         "drupal/core-recipe-unpack": "^11.3",
         "drupal/core-recommended": "^11.3",
         "drupal/jsonapi_extras": "^3.28",
+        "drupal/s3fs": "^3.10",
         "drupal/simple_oauth": "^6.1",
         "drupal/simple_oauth_password_grant": "^2.1",
         "drush/drush": "^13.7",

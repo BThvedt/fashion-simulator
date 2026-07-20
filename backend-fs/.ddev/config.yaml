@@ -11,6 +11,9 @@ database:
     version: "10.11"
 use_dns_when_possible: true
 composer_version: "2"
+# s3fs / AWS credentials for local dev live in the gitignored .ddev/.env.web
+# file (DDEV auto-loads .ddev/.env and .ddev/.env.<service>). Keep secrets out
+# of this file — config.yaml is tracked in git.
 web_environment: []
 corepack_enable: true
 

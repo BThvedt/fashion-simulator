@@ -929,3 +929,31 @@ if (getenv('DB_HOST')) {
 }
 
 $settings['config_sync_directory'] = '../config/sync';
+
+/**
+ * S3 File System (s3fs).
+ *
+ * Credentials and the bucket are supplied via environment variables so no
+ * secrets live in the repo. In s3fs 3.x the public/private take-over flags are
+ * set here (not in the config form). We only route the PRIVATE stream through
+ * S3 — Fashion Video pose/AI images are stored as private files and served via
+ * presigned URLs. Set these env vars in docker-compose.prod.yml / .ddev:
+ *   S3FS_BUCKET, S3FS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+ */
+// The private:// stream wrapper is only registered by core when a private path
+// is configured. s3fs *takes over* that wrapper (below) rather than creating
+// it, so this must be set for private (S3-backed) files to work at all. With
+// the s3fs take-over active, files are stored in S3 and this local path is only
+// a fallback. Kept outside the web root so it is never served directly.
+$settings['file_private_path'] = '../private';
+
+if (getenv('S3FS_BUCKET')) {
+  $settings['s3fs.use_s3_for_private'] = TRUE;
+  // Buckets with ACLs disabled (S3 "Bucket owner enforced") reject public-read
+  // ACLs; upload everything privately (served via presigned URLs anyway).
+  $settings['s3fs.upload_as_private'] = TRUE;
+  $settings['s3fs.access_key'] = getenv('AWS_ACCESS_KEY_ID') ?: '';
+  $settings['s3fs.secret_key'] = getenv('AWS_SECRET_ACCESS_KEY') ?: '';
+  $config['s3fs.settings']['bucket'] = getenv('S3FS_BUCKET');
+  $config['s3fs.settings']['region'] = getenv('S3FS_REGION') ?: 'us-east-1';
+}

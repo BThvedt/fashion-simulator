@@ -1,9 +1,32 @@
 import Link from "next/link";
 import { getToken } from "@/lib/auth";
+import { drupalFetch } from "@/lib/drupal";
 import RetroLanding from "@/components/RetroLanding";
 import VideoThumbnails, {
   type VideoThumbnail,
 } from "@/components/VideoThumbnails";
+
+/**
+ * Loads the fashion videos the signed-in user may view (their own; everyone's
+ * for admins), newest first. Node access grants scope the result per user.
+ */
+async function loadVideos(): Promise<VideoThumbnail[]> {
+  const res = await drupalFetch(
+    "/jsonapi/node/fashion_video?fields[node--fashion_video]=title,created&sort=-created&page[limit]=50",
+    { cache: "no-store" }
+  );
+  if (!res.ok) return [];
+
+  const body = (await res.json()) as {
+    data: { id: string; attributes: { title: string } }[];
+  };
+  return body.data.map((node) => ({
+    id: node.id,
+    // Stored with seconds (e.g. "2026-07-20 16:19:32"); show to the minute.
+    title: (node.attributes.title ?? "").replace(/:\d{2}$/, ""),
+    thumbnailUrl: "",
+  }));
+}
 
 export default async function Home() {
   const token = await getToken();
@@ -13,8 +36,7 @@ export default async function Home() {
     return <RetroLanding />;
   }
 
-  // TODO: load the signed-in user's videos from JSON:API via drupalFetch.
-  const videos: VideoThumbnail[] = [];
+  const videos = await loadVideos();
 
   return (
     <div className="flex flex-1 flex-col bg-background font-sans">

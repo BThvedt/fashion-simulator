@@ -398,6 +398,12 @@ export default function CreateStudio() {
     let shownNum = 0;
     const photos: string[] = [];
 
+    // Pose stills are only used as reference for the AI service, so keep them
+    // as small as still-useful: cap the longest edge and use a modest JPEG
+    // quality. ~768px / q0.72 lands around 40–90 KB per shot.
+    const CAPTURE_MAX_EDGE = 768;
+    const CAPTURE_QUALITY = 0.72;
+
     const still = document.createElement("canvas");
     const stillCtx = still.getContext("2d")!;
 
@@ -427,17 +433,23 @@ export default function CreateStudio() {
     }
 
     function capturePhoto() {
-      still.width = video.videoWidth;
-      still.height = video.videoHeight;
+      const vw = video.videoWidth || 1280;
+      const vh = video.videoHeight || 720;
+      const scale = Math.min(1, CAPTURE_MAX_EDGE / Math.max(vw, vh));
+      const w = Math.round(vw * scale);
+      const h = Math.round(vh * scale);
+      still.width = w;
+      still.height = h;
       stillCtx.save();
-      stillCtx.translate(still.width, 0);
+      // Mirror horizontally to match the flipped preview, scaling the frame
+      // down to the capture size in the same draw.
+      stillCtx.translate(w, 0);
       stillCtx.scale(-1, 1);
-      stillCtx.drawImage(video, 0, 0);
+      stillCtx.drawImage(video, 0, 0, w, h);
       stillCtx.restore();
-      const url = still.toDataURL("image/jpeg", 0.92);
+      const url = still.toDataURL("image/jpeg", CAPTURE_QUALITY);
       photos.push(url);
       shot.src = url;
-      // TODO: POST photo to the server once an upload endpoint exists.
     }
 
     function updateCapture(now: number) {
@@ -783,15 +795,14 @@ export default function CreateStudio() {
       generating = true;
       voiceDone.disabled = true;
       voiceDone.textContent = "Generating…";
-      // TODO: also upload the captured photos (`photos`) and voice clip
-      // (`voiceBlob`) once media upload endpoints exist. For now this just
-      // creates the content item titled with the current date/time.
-      const result = await createFashionVideo();
+      // Pose photos are uploaded to S3-backed media by the server action.
+      // TODO: also send the voice clip (`voiceBlob`) once its field exists.
+      const result = await createFashionVideo([...photos]);
       if (disposed) return;
       if (result.ok) {
         stopMusic();
         restoreTheme();
-        routerRef.current.push(`/content/${result.id}`);
+        routerRef.current.push(`/videos/${result.id}`);
       } else {
         generating = false;
         voiceDone.disabled = false;
