@@ -713,6 +713,29 @@
   display: inline-block;
 }
 
+/* Tutorial / privacy links under the video window, shown before capture. */
+.introLinks {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 16px;
+}
+.introLinks[data-show="false"] {
+  display: none;
+}
+.introLink {
+  font-size: 1.125rem;
+  font-weight: 500;
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  transition: color 0.2s ease;
+}
+.introLink:hover {
+  color: color-mix(in oklch, var(--primary) 80%, transparent);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .coverage,
   .monitor,

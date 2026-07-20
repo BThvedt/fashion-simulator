@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createFashionVideo } from "@/app/actions/content";
 import styles from "./CreateStudio.module.css";
@@ -53,6 +54,7 @@ export default function CreateStudio() {
     const hint = q<HTMLElement>("startHint");
     const startEl = q<HTMLElement>("start");
     const readyEl = q<HTMLElement>("ready");
+    const introLinks = q<HTMLElement>("introLinks");
     const goBtn = q<HTMLButtonElement>("go");
     const meterLabel = q<HTMLElement>("meterLabel");
     const meterBars = Array.from(
@@ -88,11 +90,15 @@ export default function CreateStudio() {
       prevDark = document.documentElement.classList.contains("dark");
       document.documentElement.classList.add("dark");
       themeForced = true;
+      // The tutorial/privacy links only belong on the intro screens, before
+      // the studio dims into showtime mode.
+      show(introLinks, false);
     };
     const restoreTheme = () => {
       if (!themeForced) return;
       document.documentElement.classList.toggle("dark", prevDark);
       themeForced = false;
+      show(introLinks, true);
     };
 
     // Background music for the capture flow: pick one track at random, loop it
@@ -980,6 +986,15 @@ export default function CreateStudio() {
           Try again
         </button>
       </div>
+      </div>
+
+      <div data-fc="introLinks" className={styles.introLinks}>
+        <Link href="/tutorial" className={styles.introLink}>
+          Tutorial
+        </Link>
+        <Link href="/privacy" className={styles.introLink}>
+          Privacy Policy
+        </Link>
       </div>
     </div>
   );
