@@ -37,6 +37,8 @@ services:
       S3FS_REGION: ${S3FS_REGION}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      # OpenAI — used for fashion aesthetic analysis of pose photos.
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
     depends_on:
       - db
 

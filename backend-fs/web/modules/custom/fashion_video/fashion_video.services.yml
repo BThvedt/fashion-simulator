@@ -8,3 +8,11 @@ services:
       - '@config.factory'
       - '@s3fs'
       - '@file_url_generator'
+  logger.channel.fashion_video:
+    parent: logger.channel_base
+    arguments: ['fashion_video']
+  fashion_video.stylist:
+    class: Drupal\fashion_video\AestheticGenerator
+    arguments:
+      - '@http_client'
+      - '@logger.channel.fashion_video'

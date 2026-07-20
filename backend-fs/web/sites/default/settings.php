@@ -957,3 +957,12 @@ if (getenv('S3FS_BUCKET')) {
   $config['s3fs.settings']['bucket'] = getenv('S3FS_BUCKET');
   $config['s3fs.settings']['region'] = getenv('S3FS_REGION') ?: 'us-east-1';
 }
+
+/**
+ * OpenAI — used by the fashion_video module to guess a fashion aesthetic from
+ * the captured pose photos. Supplied via the OPENAI_API_KEY env var (see
+ * docker-compose.prod.yml / .ddev/.env.web). Leave unset to disable analysis.
+ */
+if (getenv('OPENAI_API_KEY')) {
+  $settings['openai.api_key'] = getenv('OPENAI_API_KEY');
+}

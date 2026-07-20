@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\fashion_video\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\fashion_video\AestheticGenerator;
 use Drupal\fashion_video\FashionVideoUploader;
 use Drupal\node\NodeInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -31,10 +32,14 @@ final class FashionVideoUploadController extends ControllerBase {
 
   public function __construct(
     private readonly FashionVideoUploader $uploader,
+    private readonly AestheticGenerator $stylist,
   ) {}
 
   public static function create(ContainerInterface $container): self {
-    return new self($container->get('fashion_video.uploader'));
+    return new self(
+      $container->get('fashion_video.uploader'),
+      $container->get('fashion_video.stylist'),
+    );
   }
 
   /**
@@ -56,6 +61,7 @@ final class FashionVideoUploadController extends ControllerBase {
     }
 
     $created = [];
+    $binaries = [];
     foreach ($images as $image) {
       if (!is_string($image)) {
         continue;
@@ -64,9 +70,19 @@ final class FashionVideoUploadController extends ControllerBase {
       $media = $this->uploader->addImage($node, $binary, $extension);
       $node->get('field_pose_images')->appendItem(['target_id' => $media->id()]);
       $created[] = $media->uuid();
+      $binaries[] = [$binary, $extension];
     }
 
     if ($created) {
+      $node->save();
+    }
+
+    // Best-effort aesthetic analysis. Images are already saved, so a failure
+    // here (missing API key, timeout, etc.) just leaves the node without an
+    // analysis rather than losing the upload.
+    $analysis = $this->stylist->analyze($binaries);
+    if ($analysis && $node->hasField('field_style_analysis')) {
+      $node->set('field_style_analysis', json_encode($analysis));
       $node->save();
     }
 
@@ -74,6 +90,7 @@ final class FashionVideoUploadController extends ControllerBase {
       'status' => 'ok',
       'node' => $node->uuid(),
       'created' => $created,
+      'analysis' => $analysis,
     ], 201);
   }
 
@@ -97,9 +114,18 @@ final class FashionVideoUploadController extends ControllerBase {
       }
     }
 
+    $analysis = NULL;
+    if ($node->hasField('field_style_analysis') && !$node->get('field_style_analysis')->isEmpty()) {
+      $decoded = json_decode((string) $node->get('field_style_analysis')->value, TRUE);
+      if (is_array($decoded)) {
+        $analysis = $decoded;
+      }
+    }
+
     return new JsonResponse([
       'title' => $node->getTitle(),
       'poses' => $poses,
+      'analysis' => $analysis,
     ]);
   }
 

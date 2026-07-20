@@ -1,0 +1,19 @@
+uuid: a1000000-0000-4000-8000-000000000021
+langcode: en
+status: true
+dependencies:
+  config:
+    - field.storage.node.field_style_analysis
+    - node.type.fashion_video
+id: node.fashion_video.field_style_analysis
+field_name: field_style_analysis
+entity_type: node
+bundle: fashion_video
+label: 'Style Analysis'
+description: 'AI-generated aesthetic analysis, stored as JSON.'
+required: false
+translatable: false
+default_value: {  }
+default_value_callback: ''
+settings: {  }
+field_type: string_long
