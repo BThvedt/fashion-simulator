@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { logout } from "@/app/actions/auth";
-import ThemeToggle from "@/components/ThemeToggle";
 
 const links = [
   { href: "/profile", label: "Profile" },
@@ -46,7 +45,6 @@ export default function TopNav() {
         </ul>
 
         <div className="ml-auto flex items-center gap-4">
-          <ThemeToggle />
           <form action={logout}>
             <button
               type="submit"

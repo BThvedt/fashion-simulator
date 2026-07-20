@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import styles from "./RetroLanding.module.css";
 import NowWithAi from "./NowWithAi";
@@ -8,16 +9,22 @@ export default function RetroLanding() {
       <NowWithAi />
       <div className={styles.marqueeBar}>
         <span className={styles.marqueeText}>
-          ★彡 WELCOME TO FASHION SIMULATOR 彡★ &nbsp; Best viewed in Netscape
-          Navigator 4.0 @ 800×600 &nbsp; ✦ Sign the guestbook! ✦ &nbsp; Don&apos;t
-          forget to bookmark us!!! &nbsp; ★彡★彡★
+          ★彡 WELCOME TO FASHION SIMULATOR 彡★ &nbsp; Best viewed in a{" "}
+          <span className={styles.underline}>Modern Browser</span>, Netscape
+          Navigator 4.04.1 (or later) @ 800×600 ★彡★ &nbsp; Don&apos;t forget to
+          bookmark us!!! &nbsp; ★彡★彡★
         </span>
       </div>
 
       <main className={styles.main}>
-        <div className={styles.globe} aria-hidden="true">
-          🌐
-        </div>
+        <Image
+          src="/saturn.png"
+          alt=""
+          aria-hidden="true"
+          width={126}
+          height={84}
+          className={styles.globe}
+        />
 
         <h1 className={styles.title}>Fashion Simulator</h1>
 
@@ -49,7 +56,7 @@ export default function RetroLanding() {
 
         <div className={styles.badges}>
           <span className={styles.badge}>Netscape Now!</span>
-          <span className={styles.badge}>Made with Notepad</span>
+          <span className={styles.badge}>Notepad++</span>
           <span className={styles.badge}>800×600</span>
           <span className={styles.badge}>Y2K Ready</span>
         </div>

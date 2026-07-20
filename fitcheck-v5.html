@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FITCHECK — full-body stage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #14161c;
+    --panel: rgba(27, 30, 39, 0.82);
+    --line: #2b3040;
+    --text: #e9e6dc;
+    --muted: #868b9d;
+    --amber: #f2a33c;
+    --ok: #58c08a;
+    --rec: #e5484d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "IBM Plex Mono", monospace;
+  }
+
+  /* ---------- fullscreen feed ---------- */
+  #video {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;
+    transform: scaleX(-1);
+    background: var(--bg);
+  }
+
+  /* ---------- skeleton monitor (top center) ---------- */
+  #monitor {
+    position: fixed;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 10px 6px;
+    backdrop-filter: blur(6px);
+    transition: border-color 0.35s ease, box-shadow 0.35s ease;
+    text-align: center;
+    display: none;
+  }
+  #monitor.live { display: block; }
+  #monitor.full {
+    border-color: var(--ok);
+    box-shadow: 0 0 22px rgba(88, 192, 138, 0.35);
+  }
+  #skeleton {
+    display: block;
+    width: 200px;
+    height: 150px;
+    border-radius: 4px;
+    background: rgba(20, 22, 28, 0.6);
+  }
+  #monitor .strip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    margin-top: 6px;
+  }
+  #lamp {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.35s ease, box-shadow 0.35s ease;
+  }
+  #monitor.full #lamp {
+    background: var(--ok);
+    box-shadow: 0 0 8px var(--ok);
+  }
+  #monitor.partial #lamp { background: var(--amber); }
+  #state {
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    color: var(--muted);
+  }
+  #monitor.full #state { color: var(--ok); }
+  #monitor.partial #state { color: var(--amber); }
+
+  /* ---------- full-body overlay ---------- */
+  #coverage {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: rgba(20, 22, 28, 0.55);
+    backdrop-filter: blur(2px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.45s ease;
+    text-align: center;
+    padding: 24px;
+  }
+  #coverage.show { opacity: 1; }
+  #coverage h2 {
+    font-family: "Archivo", sans-serif;
+    font-stretch: 125%;
+    font-weight: 700;
+    font-size: clamp(22px, 4vw, 40px);
+    letter-spacing: 0.02em;
+    max-width: 18ch;
+    line-height: 1.2;
+  }
+  #coverage p {
+    color: var(--muted);
+    font-size: 13px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #coverage, #monitor, #lamp { transition: none; }
+  }
+
+  /* ---------- ready screen (feed live behind) ---------- */
+  #ready {
+    position: fixed;
+    inset: 0;
+    z-index: 25;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    background: rgba(20, 22, 28, 0.62);
+    backdrop-filter: blur(3px);
+    text-align: center;
+    padding: 24px;
+  }
+  #ready.show { display: flex; }
+  #ready h2 {
+    font-family: "Archivo", sans-serif;
+    font-stretch: 125%;
+    font-weight: 700;
+    font-size: clamp(30px, 5vw, 52px);
+    letter-spacing: 0.02em;
+  }
+  #ready p {
+    color: var(--text);
+    opacity: 0.92;
+    font-size: 17px;
+    max-width: 46ch;
+    line-height: 1.6;
+  }
+  #ready .pose-cta {
+    font-family: "Archivo", sans-serif;
+    font-stretch: 125%;
+    font-weight: 700;
+    font-size: clamp(20px, 3vw, 30px);
+    color: var(--text);
+    letter-spacing: 0.02em;
+  }
+  #go {
+    margin-top: 10px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 17px;
+    letter-spacing: 0.12em;
+    padding: 16px 54px;
+    background: var(--amber);
+    color: #14161c;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+  }
+  #go:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 24px rgba(242, 163, 60, 0.35);
+  }
+  #go:focus-visible { outline: 3px solid var(--text); outline-offset: 3px; }
+  @media (prefers-reduced-motion: reduce) { #go { transition: none; } }
+
+  /* ---------- pose / countdown sequence ---------- */
+  #pose-ui {
+    position: fixed;
+    inset: 0;
+    z-index: 15;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    pointer-events: none;
+    text-align: center;
+  }
+  #pose-ui.show { display: flex; }
+  .pose-line {
+    font-family: "Archivo", sans-serif;
+    font-stretch: 125%;
+    font-weight: 700;
+    color: var(--text);
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
+    visibility: hidden;
+  }
+  #pose-line1 { font-size: clamp(22px, 3.2vw, 34px); }
+  #pose-line2 { font-size: clamp(34px, 5.5vw, 56px); }
+  .pose-line.show {
+    visibility: visible;
+    animation: pop 0.35s cubic-bezier(0.2, 1.6, 0.4, 1);
+  }
+  @keyframes pop {
+    from { transform: scale(1.5); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+
+  /* film-leader countdown circle */
+  #leader {
+    position: relative;
+    width: clamp(180px, 28vw, 300px);
+    height: clamp(180px, 28vw, 300px);
+    border-radius: 50%;
+    border: 3px solid rgba(233, 230, 220, 0.9);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background:
+      conic-gradient(rgba(233, 230, 220, 0.28) var(--sweep, 0deg),
+                     rgba(20, 22, 28, 0.35) var(--sweep, 0deg));
+    box-shadow: 0 0 60px rgba(0, 0, 0, 0.4), inset 0 0 40px rgba(0, 0, 0, 0.3);
+  }
+  #leader.show { display: flex; }
+  #leader::before, #leader::after {
+    content: "";
+    position: absolute;
+    background: rgba(233, 230, 220, 0.55);
+  }
+  #leader::before { left: -14%; right: -14%; top: 50%; height: 2px; }
+  #leader::after { top: -14%; bottom: -14%; left: 50%; width: 2px; }
+  #leader span {
+    font-family: "Archivo", sans-serif;
+    font-stretch: 125%;
+    font-weight: 700;
+    font-size: clamp(90px, 15vw, 170px);
+    color: var(--text);
+    line-height: 1;
+    z-index: 1;
+  }
+  @media (prefers-reduced-motion: reduce) { .pose-line.show { animation: none; } }
+
+  /* shutter flash */
+  #flash {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: #fff;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease-out;
+  }
+  #flash.on { opacity: 1; transition: none; }
+
+  /* captured photo shown in the monitor window */
+  #shot {
+    display: none;
+    width: 200px;
+    height: 150px;
+    object-fit: cover;
+    border-radius: 4px;
+  }
+  #monitor.photo #shot { display: block; }
+  #monitor.photo #skeleton { display: none; }
+
+  #again {
+    pointer-events: auto;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 14px;
+    letter-spacing: 0.1em;
+    padding: 12px 34px;
+    background: var(--amber);
+    color: #14161c;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    display: none;
+  }
+  #again.show { display: inline-block; }
+
+  /* ---------- voice phase ---------- */
+  #voice-ui {
+    position: fixed;
+    inset: 0;
+    z-index: 15;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    background: rgba(20, 22, 28, 0.5);
+    backdrop-filter: blur(2px);
+    text-align: center;
+    padding: 24px;
+  }
+  #voice-ui.show { display: flex; }
+  #voice-ui h2 {
+    font-family: "Archivo", sans-serif;
+    font-stretch: 125%;
+    font-weight: 700;
+    font-size: clamp(26px, 4vw, 42px);
+    color: var(--text);
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
+  }
+  #voice-ui .sub {
+    color: var(--text);
+    opacity: 0.9;
+    font-size: 15px;
+  }
+  .chips {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 640px;
+  }
+  .chip {
+    font-size: 13px;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 8px 16px;
+    backdrop-filter: blur(4px);
+  }
+  .chip::before { content: "\201C"; color: var(--amber); margin-right: 2px; }
+  .chip::after  { content: "\201D"; color: var(--amber); margin-left: 2px; }
+
+  #mic-wrap {
+    position: relative;
+    width: 128px;
+    height: 128px;
+    margin-top: 6px;
+  }
+  #mic-ring {
+    position: absolute;
+    inset: 0;
+    transform: rotate(-90deg);
+  }
+  #mic-ring circle {
+    fill: none;
+    stroke-width: 5;
+  }
+  #mic-ring .track { stroke: rgba(233, 230, 220, 0.18); }
+  #mic-ring .fill {
+    stroke: var(--rec);
+    stroke-linecap: round;
+    stroke-dasharray: 364;
+    stroke-dashoffset: 364;
+  }
+  #mic-btn {
+    position: absolute;
+    inset: 10px;
+    border-radius: 50%;
+    border: 2px solid var(--amber);
+    background: var(--panel);
+    color: var(--amber);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.12s ease, background 0.2s ease,
+                border-color 0.2s ease, color 0.2s ease;
+    backdrop-filter: blur(4px);
+  }
+  #mic-btn:hover { transform: scale(1.05); }
+  #mic-btn:focus-visible { outline: 3px solid var(--text); outline-offset: 3px; }
+  #mic-btn svg { width: 44px; height: 44px; }
+  #mic-btn.rec {
+    background: var(--rec);
+    border-color: var(--rec);
+    color: #fff;
+  }
+  @media (prefers-reduced-motion: reduce) { #mic-btn { transition: none; } }
+
+  #voice-review {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+  #voice-review.show { display: flex; }
+  #voice-review audio { width: 280px; }
+  .voice-actions { display: flex; gap: 10px; }
+  .voice-actions button {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    padding: 11px 26px;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 1px solid var(--amber);
+    background: transparent;
+    color: var(--amber);
+  }
+  .voice-actions button.primary {
+    background: var(--amber);
+    color: #14161c;
+    border: none;
+  }
+  #mic-missing { color: #f0b0b0; font-size: 13px; display: none; }
+  #mic-missing.show { display: block; }
+
+  /* ---------- start screen ---------- */
+  #start {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    background: var(--bg);
+    cursor: pointer;
+  }
+  #start h1 {
+    font-family: "Archivo", sans-serif;
+    font-stretch: 125%;
+    font-weight: 700;
+    font-size: 34px;
+    letter-spacing: 0.06em;
+  }
+  #start h1 .check { color: var(--amber); }
+  #start p { color: var(--muted); font-size: 13px; }
+  #start.hidden { display: none; }
+  #perm {
+    max-width: 46ch;
+    text-align: center;
+    line-height: 1.6;
+    font-size: 13px;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 18px;
+    display: none;
+  }
+  #perm.show { display: block; }
+  #perm.blocked { border-color: var(--rec); color: #f0b0b0; }
+  #perm b { color: var(--text); font-weight: 500; }
+  #retry {
+    font-family: inherit;
+    font-size: 13px;
+    padding: 9px 18px;
+    background: transparent;
+    color: var(--amber);
+    border: 1px solid var(--amber);
+    border-radius: 6px;
+    cursor: pointer;
+    display: none;
+  }
+  #retry.show { display: inline-block; }
+</style>
+</head>
+<body>
+
+<video id="video" autoplay playsinline muted></video>
+
+<div id="monitor" aria-live="polite">
+  <canvas id="skeleton" width="200" height="150"></canvas>
+  <img id="shot" alt="captured pose">
+  <div class="strip">
+    <span id="lamp"></span>
+    <span id="state">STARTING</span>
+  </div>
+</div>
+
+<div id="pose-ui">
+  <div class="pose-line" id="pose-line1">Get ready to Pose!</div>
+  <div class="pose-line" id="pose-line2">Pose 1 (of 3)</div>
+  <div id="leader"><span>3</span></div>
+  <button id="again">SHOOT AGAIN</button>
+</div>
+
+<div id="flash"></div>
+
+<div id="voice-ui">
+  <h2>Now say something!</h2>
+  <div class="sub">press the mic and deliver your line — 5 seconds, make it count</div>
+  <div class="chips">
+    <span class="chip">Fashion is my Passion</span>
+    <span class="chip">I've got piles of style</span>
+    <span class="chip">Lookin' good like I should</span>
+  </div>
+  <div id="mic-wrap">
+    <svg id="mic-ring" viewBox="0 0 128 128">
+      <circle class="track" cx="64" cy="64" r="58"></circle>
+      <circle class="fill" cx="64" cy="64" r="58"></circle>
+    </svg>
+    <button id="mic-btn" aria-label="Record voice line">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-6a3.5 3.5 0 0 0-7 0v6A3.5 3.5 0 0 0 12 15z"/>
+        <path d="M18.5 11.5a6.5 6.5 0 0 1-13 0H4a8 8 0 0 0 7 7.94V22h2v-2.56a8 8 0 0 0 7-7.94h-1.5z"/>
+      </svg>
+    </button>
+  </div>
+  <div id="mic-missing">No microphone available — enable it in the browser and reload, or skip.</div>
+  <div id="voice-review">
+    <audio id="voice-audio" controls></audio>
+    <div class="voice-actions">
+      <button id="voice-redo">REDO</button>
+      <button id="voice-done" class="primary">FINISH</button>
+    </div>
+  </div>
+</div>
+
+<div id="coverage" aria-hidden="true">
+  <h2>Please bring your full body into the webcam</h2>
+  <p>step back until your head and feet are both in frame</p>
+</div>
+
+<div id="ready">
+  <h2>Ready to start?</h2>
+  <p>Please check your webcam and microphone is working and we recommend the volume on</p>
+  <div class="pose-cta">Get ready to Pose!</div>
+  <button id="go">START</button>
+</div>
+
+<div id="start">
+  <h1>FIT<span class="check">CHECK</span></h1>
+  <p id="start-hint">click anywhere to start the camera</p>
+  <div id="perm"></div>
+  <button id="retry">Try again</button>
+</div>
+
+<script type="module">
+import {
+  PoseLandmarker,
+  FilesetResolver
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+const $ = (id) => document.getElementById(id);
+const video = $("video");
+const monitor = $("monitor");
+const stateEl = $("state");
+const coverage = $("coverage");
+const skCanvas = $("skeleton");
+const skCtx = skCanvas.getContext("2d");
+
+let landmarker = null;
+let running = false;
+let lastVideoTime = -1;
+let latest = null;
+
+// full-body requirement, loosened for real-world tracking:
+// upper body must be solid, lower body is judged leniently (MediaPipe's
+// visibility scores sag on legs/feet even when they're plainly visible)
+const UPPER = { 0: 0.5, 11: 0.5, 12: 0.5, 23: 0.45, 24: 0.45 }; // nose, shoulders, hips
+const LOWER = { 25: 0.3, 26: 0.3, 27: 0.25, 28: 0.25 };         // knees, ankles
+const EDGE = 0.03;   // how far outside the frame a landmark may drift
+
+// hysteresis so the overlay doesn't flicker at the threshold
+let fullSince = 0, lostSince = 0, isFull = false;
+const GAIN_MS = 250, LOSE_MS = 900;
+
+async function loadModel() {
+  const fileset = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+  );
+  landmarker = await PoseLandmarker.createFromOptions(fileset, {
+    baseOptions: {
+      modelAssetPath:
+        "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task",
+      delegate: "GPU"
+    },
+    runningMode: "VIDEO",
+    numPoses: 1
+  });
+}
+const modelReady = loadModel();
+
+/* ---------------- permission handling ---------------- */
+const perm = $("perm");
+const retry = $("retry");
+const hint = $("start-hint");
+const WANT_MIC = true;   // set false if you never need audio capture
+
+function showPerm(html, blocked) {
+  perm.innerHTML = html;
+  perm.classList.add("show");
+  perm.classList.toggle("blocked", !!blocked);
+}
+
+// 1. insecure context: the browser will NEVER prompt here
+if (location.protocol === "file:" || !window.isSecureContext) {
+  hint.textContent = "camera unavailable on this page";
+  showPerm(
+    "This page was opened as a file, so the browser cannot ask for the " +
+    "webcam at all.<br><br>Serve it instead: run <b>python3 -m http.server" +
+    "</b> in this folder, then open <b>http://localhost:8000/fitcheck.html</b>.",
+    true);
+}
+
+// 2. pre-check remembered permission state (Chrome supports this)
+async function permState(name) {
+  try { return (await navigator.permissions.query({ name })).state; }
+  catch { return "unknown"; }
+}
+(async () => {
+  if (!window.isSecureContext) return;
+  const cam = await permState("camera");
+  const mic = WANT_MIC ? await permState("microphone") : "granted";
+  if (cam === "denied" || mic === "denied") showBlockedHelp();
+})();
+
+function showBlockedHelp() {
+  hint.textContent = "permission needed";
+  showPerm(
+    "<b>Please enable the webcam and microphone.</b><br><br>" +
+    "The browser has this site remembered as blocked, so it will not ask " +
+    "again on its own. Click the <b>camera / lock icon</b> in the address " +
+    "bar, set Camera" + (WANT_MIC ? " and Microphone" : "") +
+    " to <b>Allow</b>, then reload the page.<br><br>" +
+    "Note: each localhost <b>port</b> counts as a separate site — allowing " +
+    "it on :8080 does not carry over to :8000.",
+    true);
+  retry.classList.add("show");
+}
+
+retry.addEventListener("click", (e) => {
+  e.stopPropagation();
+  startCamera();
+});
+$("start").addEventListener("click", () => startCamera());
+
+let starting = false;
+async function startCamera() {
+  if (running || starting || !window.isSecureContext) return;
+  starting = true;
+  hint.textContent = "requesting camera…";
+  let stream = null;
+  try {
+    // asking IS the trigger: this call is what makes the browser prompt
+    stream = await navigator.mediaDevices.getUserMedia(
+      { video: { width: 1280, height: 720 }, audio: WANT_MIC });
+  } catch (e1) {
+    if (WANT_MIC && (e1.name === "NotAllowedError" || e1.name === "NotFoundError")) {
+      // mic may be the blocker; fall back to camera-only
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(
+          { video: { width: 1280, height: 720 } });
+      } catch (e2) { handleCamError(e2); starting = false; return; }
+    } else { handleCamError(e1); starting = false; return; }
+  }
+  video.srcObject = stream;
+  await video.play();
+  await modelReady;
+  $("start").classList.add("hidden");
+  $("ready").classList.add("show");
+  $("go").focus();
+}
+
+$("go").addEventListener("click", () => {
+  $("ready").classList.remove("show");
+  monitor.classList.add("live");
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  running = true;
+  stateEl.textContent = "NO BODY";
+  requestAnimationFrame(loop);
+});
+
+/* ---------------- capture sequence ---------------- */
+const TOTAL_POSES = 3;
+const poseUI = $("pose-ui");
+const line1 = $("pose-line1");
+const line2 = $("pose-line2");
+const leader = $("leader");
+const leaderNum = leader.querySelector("span");
+const flash = $("flash");
+const shot = $("shot");
+const againBtn = $("again");
+
+let audioCtx = null;
+let phase = "wait";        // wait | announce | countdown | flash | review | done
+let phaseStart = 0;
+let poseIndex = 1;
+let shownNum = 0;
+const photos = [];         // dataURLs; destined for the server later
+
+const still = document.createElement("canvas");
+const stillCtx = still.getContext("2d");
+
+function beep(freq, dur = 0.12, vol = 0.22) {
+  if (!audioCtx) return;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.frequency.value = freq;
+  o.type = "sine";
+  g.gain.setValueAtTime(vol, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+  o.connect(g).connect(audioCtx.destination);
+  o.start();
+  o.stop(audioCtx.currentTime + dur);
+}
+
+function setPhase(p, now) { phase = p; phaseStart = now; }
+
+function resetSequenceUI() {
+  poseUI.classList.remove("show");
+  line1.classList.remove("show");
+  line2.classList.remove("show");
+  leader.classList.remove("show");
+}
+
+function capturePhoto() {
+  still.width = video.videoWidth;
+  still.height = video.videoHeight;
+  stillCtx.save();
+  stillCtx.translate(still.width, 0);
+  stillCtx.scale(-1, 1);                      // match the mirrored preview
+  stillCtx.drawImage(video, 0, 0);
+  stillCtx.restore();
+  const url = still.toDataURL("image/jpeg", 0.92);
+  photos.push(url);
+  shot.src = url;
+  // TODO: POST to server here; for now it just shows in the monitor window
+}
+
+function updateCapture(now) {
+  const t = now - phaseStart;
+  switch (phase) {
+    case "wait":
+      if (isFull) {
+        resetSequenceUI();
+        line2.textContent = `Pose ${poseIndex} (of ${TOTAL_POSES})`;
+        poseUI.classList.add("show");
+        line1.classList.add("show");
+        setPhase("announce", now);
+      }
+      break;
+
+    case "announce":
+      if (!isFull) { resetSequenceUI(); setPhase("wait", now); break; }
+      if (t > 1000 && !line2.classList.contains("show")) line2.classList.add("show");
+      if (t > 2000) {
+        leader.classList.add("show");
+        shownNum = 0;
+        setPhase("countdown", now);
+      }
+      break;
+
+    case "countdown": {
+      if (!isFull) { resetSequenceUI(); setPhase("wait", now); break; }
+      const num = 3 - Math.floor(t / 1000);
+      if (num !== shownNum && num >= 1) {
+        shownNum = num;
+        leaderNum.textContent = num;
+        beep(660, 0.12);
+      }
+      leader.style.setProperty("--sweep", ((t % 1000) / 1000) * 360 + "deg");
+      if (t >= 3000) {
+        capturePhoto();
+        flash.classList.add("on");
+        beep(990, 0.25, 0.3);
+        resetSequenceUI();
+        setPhase("flash", now);
+      }
+      break;
+    }
+
+    case "flash":
+      if (t > 120) flash.classList.remove("on");   // fades via CSS transition
+      if (t > 400) {
+        monitor.classList.add("photo");            // photo replaces skeleton
+        setPhase("review", now);
+      }
+      break;
+
+    case "review":
+      if (t > 2200) {
+        if (poseIndex >= TOTAL_POSES) {
+          resetSequenceUI();
+          enterVoicePhase();
+          setPhase("voice", now);
+        } else {
+          poseIndex += 1;
+          monitor.classList.remove("photo");       // skeleton back for gating
+          setPhase("wait", now);
+        }
+      }
+      break;
+
+    case "voice":     // event-driven; see voice section below
+    case "done":
+      break;
+  }
+}
+
+againBtn.addEventListener("click", () => resetAll());
+
+function resetAll() {
+  poseIndex = 1;
+  photos.length = 0;
+  voiceBlob = null;
+  line1.textContent = "Get ready to Pose!";
+  againBtn.classList.remove("show");
+  resetSequenceUI();
+  voiceUI.classList.remove("show");
+  voiceReview.classList.remove("show");
+  monitor.classList.remove("photo");
+  setPhase("wait", performance.now());
+}
+
+/* ---------------- voice phase ---------------- */
+const voiceUI = $("voice-ui");
+const micBtn = $("mic-btn");
+const micRingFill = document.querySelector("#mic-ring .fill");
+const RING_LEN = 364;                    // 2πr for r=58
+const voiceReview = $("voice-review");
+const voiceAudio = $("voice-audio");
+const REC_SECONDS = 5;
+
+let mediaRec = null;
+let recChunks = [];
+let voiceBlob = null;
+let recStart = 0;
+let recRAF = 0;
+let recording = false;
+
+function enterVoicePhase() {
+  voiceUI.classList.add("show");
+  const hasMic = (video.srcObject?.getAudioTracks().length ?? 0) > 0;
+  if (!hasMic) {
+    $("mic-missing").classList.add("show");
+    micBtn.disabled = true;
+    micBtn.style.opacity = 0.4;
+    voiceReview.classList.add("show");   // expose FINISH as a skip
+    voiceAudio.style.display = "none";
+    $("voice-redo").style.display = "none";
+    $("voice-done").textContent = "SKIP";
+  }
+}
+
+micBtn.addEventListener("click", () => (recording ? stopRec() : startRec()));
+
+function startRec() {
+  const tracks = video.srcObject.getAudioTracks();
+  if (!tracks.length) return;
+  recChunks = [];
+  try {
+    mediaRec = new MediaRecorder(new MediaStream(tracks));
+  } catch (e) {
+    $("mic-missing").textContent = "Recording failed: " + e.message;
+    $("mic-missing").classList.add("show");
+    return;
+  }
+  mediaRec.ondataavailable = (e) => e.data.size && recChunks.push(e.data);
+  mediaRec.onstop = () => {
+    voiceBlob = new Blob(recChunks, { type: mediaRec.mimeType || "audio/webm" });
+    voiceAudio.src = URL.createObjectURL(voiceBlob);
+    voiceReview.classList.add("show");
+    // TODO: POST voiceBlob to the server alongside the photos
+  };
+  mediaRec.start();
+  recording = true;
+  recStart = performance.now();
+  micBtn.classList.add("rec");
+  micBtn.setAttribute("aria-label", "Stop recording");
+  voiceReview.classList.remove("show");
+  beep(550, 0.1);
+  animateRing();
+}
+
+function animateRing() {
+  if (!recording) return;
+  const t = (performance.now() - recStart) / (REC_SECONDS * 1000);
+  micRingFill.style.strokeDashoffset = RING_LEN * Math.max(0, 1 - t);
+  if (t >= 1) { stopRec(); return; }
+  recRAF = requestAnimationFrame(animateRing);
+}
+
+function stopRec() {
+  if (!recording) return;
+  recording = false;
+  cancelAnimationFrame(recRAF);
+  micRingFill.style.strokeDashoffset = 0;
+  micBtn.classList.remove("rec");
+  micBtn.setAttribute("aria-label", "Record voice line");
+  beep(990, 0.15);
+  if (mediaRec?.state === "recording") mediaRec.stop();
+}
+
+$("voice-redo").addEventListener("click", () => {
+  voiceReview.classList.remove("show");
+  micRingFill.style.strokeDashoffset = RING_LEN;
+  voiceBlob = null;
+});
+
+$("voice-done").addEventListener("click", () => {
+  voiceUI.classList.remove("show");
+  line1.textContent = "That's a wrap!";
+  line1.classList.add("show");
+  poseUI.classList.add("show");
+  againBtn.textContent = "START OVER";
+  againBtn.classList.add("show");
+  setPhase("done", performance.now());
+});
+
+function handleCamError(e) {
+  if (e.name === "NotAllowedError") {
+    showBlockedHelp();
+  } else if (e.name === "NotFoundError") {
+    hint.textContent = "no camera found";
+    navigator.mediaDevices.enumerateDevices().then((devs) => {
+      const cams = devs.filter((d) => d.kind === "videoinput");
+      const mics = devs.filter((d) => d.kind === "audioinput");
+      showPerm("The browser cannot see any webcam.<br><br>" +
+               `Devices the browser enumerates: <b>${cams.length}</b> camera(s), ` +
+               `<b>${mics.length}</b> microphone(s).<br><br>` +
+               "If that camera count is 0, the problem is below the browser: " +
+               "check the laptop's <b>camera kill-switch key</b> (often F10 " +
+               "with a camera icon), then check the OS.<br><br>" +
+               "<b>On Linux with Firefox or Chromium:</b> both often install " +
+               "as snaps, whose sandbox blocks the camera even when the OS " +
+               "sees it fine. Try <b>sudo snap connect firefox:camera</b> " +
+               "(or <b>chromium:camera</b>) in a terminal, then reload — or " +
+               "use a non-snap browser like Brave.<br><br>" +
+               "Then <b>Try again</b>.", true);
+      retry.classList.add("show");
+    });
+  } else if (e.name === "NotReadableError") {
+    hint.textContent = "camera busy";
+    showPerm("The webcam exists but could not be opened — usually another " +
+             "app (OBS, Cheese, a browser tab) is using it. Close it, then " +
+             "<b>Try again</b>.", true);
+    retry.classList.add("show");
+  } else {
+    hint.textContent = "camera error";
+    showPerm("Camera error: <b>" + e.message + "</b>", true);
+    retry.classList.add("show");
+  }
+}
+
+function landmarkOk(lm, minVis) {
+  return (lm.visibility ?? 1) >= minVis &&
+         lm.x > -EDGE && lm.x < 1 + EDGE &&
+         lm.y > -EDGE && lm.y < 1 + EDGE;
+}
+
+function checkFullBody(lms) {
+  // upper body: all required, no exceptions
+  for (const [i, v] of Object.entries(UPPER))
+    if (!landmarkOk(lms[i], v)) return false;
+
+  // lower body: one landmark is allowed to flake at any moment
+  let misses = 0;
+  for (const [i, v] of Object.entries(LOWER))
+    if (!landmarkOk(lms[i], v)) misses++;
+
+  // feet: per side, EITHER the toe or the heel counts (very low bar)
+  if (!landmarkOk(lms[31], 0.15) && !landmarkOk(lms[29], 0.15)) misses++;
+  if (!landmarkOk(lms[32], 0.15) && !landmarkOk(lms[30], 0.15)) misses++;
+
+  return misses <= 1;
+}
+
+function loop() {
+  if (!running) return;
+  const now = performance.now();
+
+  if (video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    latest = landmarker.detectForVideo(video, now);
+    const lms = latest.landmarks?.[0];
+
+    // --- state with hysteresis ---
+    const rawFull = !!lms && checkFullBody(lms);
+    if (rawFull) {
+      lostSince = 0;
+      if (!fullSince) fullSince = now;
+      if (!isFull && now - fullSince > GAIN_MS) isFull = true;
+    } else {
+      fullSince = 0;
+      if (!lostSince) lostSince = now;
+      if (isFull && now - lostSince > LOSE_MS) isFull = false;
+    }
+
+    monitor.classList.toggle("full", isFull);
+    monitor.classList.toggle("partial", !isFull && !!lms);
+    stateEl.textContent = isFull ? "FULL BODY" : (lms ? "PARTIAL" : "NO BODY");
+    // only nag about framing while we're actually gating photos on it
+    const gating = phase === "wait" || phase === "announce" || phase === "countdown";
+    coverage.classList.toggle("show", gating && !isFull);
+    coverage.setAttribute("aria-hidden", (gating && !isFull) ? "false" : "true");
+
+    updateCapture(now);
+    drawSkeleton(lms, isFull);
+  }
+  requestAnimationFrame(loop);
+}
+
+const CONN = [...PoseLandmarker.POSE_CONNECTIONS];
+function drawSkeleton(lms, full) {
+  const w = skCanvas.width, h = skCanvas.height;
+  skCtx.clearRect(0, 0, w, h);
+  if (!lms) return;
+  const color = full ? "#58c08a" : "#f2a33c";
+  const X = (lm) => (1 - lm.x) * w;   // mirrored, matching the feed
+  const Y = (lm) => lm.y * h;
+
+  skCtx.strokeStyle = color;
+  skCtx.globalAlpha = 0.85;
+  skCtx.lineWidth = 1.5;
+  skCtx.beginPath();
+  for (const c of CONN) {
+    const a = lms[c.start], b = lms[c.end];
+    if ((a.visibility ?? 1) < 0.3 || (b.visibility ?? 1) < 0.3) continue;
+    skCtx.moveTo(X(a), Y(a));
+    skCtx.lineTo(X(b), Y(b));
+  }
+  skCtx.stroke();
+
+  skCtx.fillStyle = color;
+  skCtx.globalAlpha = 1;
+  for (const lm of lms) {
+    if ((lm.visibility ?? 1) < 0.3) continue;
+    skCtx.beginPath();
+    skCtx.arc(X(lm), Y(lm), 2, 0, Math.PI * 2);
+    skCtx.fill();
+  }
+}
+</script>
+</body>
+</html>

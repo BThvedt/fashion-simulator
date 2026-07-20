@@ -1,0 +1,549 @@
+/*
+ * FitCheck capture studio — ported from the fitcheck prototype.
+ * All colors reference the app's semantic theme tokens (see globals.css),
+ * so light and dark modes both resolve correctly. State is driven by
+ * data-* attributes (not global class names) so it survives CSS-module hashing.
+ */
+
+.wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), sans-serif;
+}
+
+.stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 78vh;
+  margin-inline: auto;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), sans-serif;
+}
+
+/* ---------- fullscreen feed (within the stage) ---------- */
+.video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  background: var(--background);
+}
+
+/* ---------- skeleton monitor (top center) ---------- */
+.monitor {
+  position: absolute;
+  top: -17%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  background: color-mix(in oklch, var(--card) 82%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px 6px;
+  backdrop-filter: blur(6px);
+  transition: border-color 0.35s ease, box-shadow 0.35s ease;
+  text-align: center;
+  display: none;
+}
+.monitor[data-live="true"] {
+  display: block;
+}
+.monitor[data-body="full"] {
+  border-color: var(--success);
+  box-shadow: 0 0 22px color-mix(in oklch, var(--success) 35%, transparent);
+}
+.skeleton {
+  display: block;
+  width: 150px;
+  height: 113px;
+  border-radius: 4px;
+  background: color-mix(in oklch, var(--background) 60%, transparent);
+}
+.strip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 6px;
+}
+.lamp {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--muted-foreground);
+  transition: background 0.35s ease, box-shadow 0.35s ease;
+}
+.monitor[data-body="full"] .lamp {
+  background: var(--success);
+  box-shadow: 0 0 8px var(--success);
+}
+.monitor[data-body="partial"] .lamp {
+  background: var(--primary);
+}
+.state {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--muted-foreground);
+}
+.monitor[data-body="full"] .state {
+  color: var(--success);
+}
+.monitor[data-body="partial"] .state {
+  color: var(--primary);
+}
+
+/* captured photo shown in the monitor window */
+.shot {
+  display: none;
+  width: 150px;
+  height: 113px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+.monitor[data-photo="true"] .shot {
+  display: block;
+}
+.monitor[data-photo="true"] .skeleton {
+  display: none;
+}
+
+/* ---------- full-body overlay ---------- */
+.coverage {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: color-mix(in oklch, var(--background) 55%, transparent);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.45s ease;
+  text-align: center;
+  padding: 24px;
+}
+.coverage[data-show="true"] {
+  opacity: 1;
+}
+.coverage h2 {
+  font-weight: 700;
+  font-size: clamp(20px, 3.4vw, 34px);
+  letter-spacing: 0.01em;
+  max-width: 18ch;
+  line-height: 1.2;
+}
+.coverage p {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+/* ---------- ready screen (feed live behind) ---------- */
+.ready {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: color-mix(in oklch, var(--background) 62%, transparent);
+  backdrop-filter: blur(3px);
+  text-align: center;
+  padding: 24px;
+}
+.ready[data-show="true"] {
+  display: flex;
+}
+.ready h2 {
+  font-weight: 700;
+  font-size: clamp(28px, 4.4vw, 46px);
+  letter-spacing: 0.01em;
+}
+.ready p {
+  opacity: 0.92;
+  font-size: 16px;
+  max-width: 46ch;
+  line-height: 1.6;
+}
+.poseCta {
+  font-weight: 700;
+  font-size: clamp(18px, 2.6vw, 26px);
+  letter-spacing: 0.01em;
+}
+
+.primaryBtn {
+  margin-top: 10px;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 16px;
+  letter-spacing: 0.12em;
+  padding: 15px 50px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.primaryBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 24px color-mix(in oklch, var(--primary) 35%, transparent);
+}
+.primaryBtn:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 3px;
+}
+
+/* ---------- pose / countdown sequence ---------- */
+.poseUi {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  pointer-events: none;
+  text-align: center;
+}
+.poseUi[data-show="true"] {
+  display: flex;
+}
+.poseLine {
+  font-weight: 700;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
+  visibility: hidden;
+}
+.poseLine1 {
+  font-size: clamp(22px, 3.2vw, 34px);
+}
+.poseLine2 {
+  font-size: clamp(34px, 5.5vw, 56px);
+}
+.poseLine[data-show="true"] {
+  visibility: visible;
+  animation: pop 0.35s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+@keyframes pop {
+  from {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* film-leader countdown circle */
+.leader {
+  position: relative;
+  width: clamp(150px, 24vw, 260px);
+  height: clamp(150px, 24vw, 260px);
+  border-radius: 50%;
+  border: 3px solid color-mix(in oklch, var(--foreground) 90%, transparent);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: conic-gradient(
+    color-mix(in oklch, var(--foreground) 28%, transparent) var(--sweep, 0deg),
+    color-mix(in oklch, var(--background) 35%, transparent) var(--sweep, 0deg)
+  );
+  box-shadow: 0 0 60px rgba(0, 0, 0, 0.4), inset 0 0 40px rgba(0, 0, 0, 0.3);
+}
+.leader[data-show="true"] {
+  display: flex;
+}
+.leader::before,
+.leader::after {
+  content: "";
+  position: absolute;
+  background: color-mix(in oklch, var(--foreground) 55%, transparent);
+}
+.leader::before {
+  left: -14%;
+  right: -14%;
+  top: 50%;
+  height: 2px;
+}
+.leader::after {
+  top: -14%;
+  bottom: -14%;
+  left: 50%;
+  width: 2px;
+}
+.leader span {
+  font-weight: 700;
+  font-size: clamp(80px, 13vw, 150px);
+  color: var(--foreground);
+  line-height: 1;
+  z-index: 1;
+}
+
+/* shutter flash */
+.flash {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease-out;
+}
+.flash[data-on="true"] {
+  opacity: 1;
+  transition: none;
+}
+
+.again {
+  pointer-events: auto;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 14px;
+  letter-spacing: 0.1em;
+  padding: 12px 34px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  display: none;
+}
+.again[data-show="true"] {
+  display: inline-block;
+}
+
+/* ---------- voice phase ---------- */
+.voiceUi {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: color-mix(in oklch, var(--background) 50%, transparent);
+  backdrop-filter: blur(2px);
+  text-align: center;
+  padding: 24px;
+}
+.voiceUi[data-show="true"] {
+  display: flex;
+}
+.voiceIntro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+.voiceUi h2 {
+  font-weight: 700;
+  font-size: clamp(26px, 4vw, 42px);
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
+}
+.sub {
+  opacity: 0.9;
+  font-size: 15px;
+}
+.chips {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 640px;
+}
+.chip {
+  font-size: 13px;
+  color: var(--foreground);
+  background: color-mix(in oklch, var(--card) 82%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 16px;
+  backdrop-filter: blur(4px);
+}
+.chip::before {
+  content: "\201C";
+  color: var(--primary);
+  margin-right: 2px;
+}
+.chip::after {
+  content: "\201D";
+  color: var(--primary);
+  margin-left: 2px;
+}
+
+.micWrap {
+  position: relative;
+  width: 128px;
+  height: 128px;
+  margin-top: 6px;
+}
+.micRing {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg);
+}
+.micRing circle {
+  fill: none;
+  stroke-width: 5;
+}
+.micRing .track {
+  stroke: color-mix(in oklch, var(--foreground) 18%, transparent);
+}
+.micRing .fill {
+  stroke: var(--destructive);
+  stroke-linecap: round;
+  stroke-dasharray: 364;
+  stroke-dashoffset: 364;
+}
+.micBtn {
+  position: absolute;
+  inset: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--primary);
+  background: color-mix(in oklch, var(--card) 82%, transparent);
+  color: var(--primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.12s ease, background 0.2s ease, border-color 0.2s ease,
+    color 0.2s ease;
+  backdrop-filter: blur(4px);
+}
+.micBtn:hover {
+  transform: scale(1.05);
+}
+.micBtn:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 3px;
+}
+.micBtn svg {
+  width: 44px;
+  height: 44px;
+}
+.micBtn[data-rec="true"] {
+  background: var(--destructive);
+  border-color: var(--destructive);
+  color: var(--destructive-foreground);
+}
+
+.voiceReview {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+}
+.voiceReview[data-show="true"] {
+  display: flex;
+}
+.gotIt {
+  margin: 0;
+  font-weight: 700;
+  font-size: clamp(44px, 8vw, 84px);
+  letter-spacing: 0.01em;
+  color: #fff;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
+}
+.micMissing {
+  color: var(--destructive);
+  font-size: 13px;
+  display: none;
+}
+.micMissing[data-show="true"] {
+  display: block;
+}
+
+/* ---------- start screen ---------- */
+.start {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  background: var(--background);
+  cursor: pointer;
+}
+.start h1 {
+  font-weight: 700;
+  font-size: 34px;
+  letter-spacing: 0.06em;
+}
+.start h1 .check {
+  color: var(--primary);
+}
+.start p {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+.start[data-hidden="true"] {
+  display: none;
+}
+.perm {
+  max-width: 46ch;
+  text-align: center;
+  line-height: 1.6;
+  font-size: 13px;
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 18px;
+  display: none;
+}
+.perm[data-show="true"] {
+  display: block;
+}
+.perm[data-blocked="true"] {
+  border-color: var(--destructive);
+  color: var(--destructive);
+}
+.perm b {
+  color: var(--foreground);
+  font-weight: 500;
+}
+.retry {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 13px;
+  padding: 9px 18px;
+  background: transparent;
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: 6px;
+  cursor: pointer;
+  display: none;
+}
+.retry[data-show="true"] {
+  display: inline-block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coverage,
+  .monitor,
+  .lamp,
+  .primaryBtn,
+  .micBtn {
+    transition: none;
+  }
+  .poseLine[data-show="true"] {
+    animation: none;
+  }
+}

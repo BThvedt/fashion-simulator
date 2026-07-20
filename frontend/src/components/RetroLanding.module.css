@@ -25,6 +25,10 @@
   padding: 6px 0;
 }
 
+.underline {
+  text-decoration: underline;
+}
+
 .marqueeText {
   display: inline-block;
   padding-left: 100%;
@@ -54,7 +58,8 @@
 }
 
 .globe {
-  font-size: 56px;
+  width: 126px;
+  height: auto;
   animation: spin 4s linear infinite;
 }
 

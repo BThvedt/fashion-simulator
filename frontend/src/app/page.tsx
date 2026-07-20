@@ -31,7 +31,7 @@ export default async function Home() {
 
         <div className="mt-10 flex flex-col items-center gap-3">
           <Link
-            href="/video"
+            href="/create"
             className="flex h-14 items-center justify-center rounded-full bg-primary px-10 text-xl font-bold text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Create Video!
