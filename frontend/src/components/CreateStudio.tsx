@@ -39,6 +39,8 @@ export default function CreateStudio() {
     const monitor = q<HTMLElement>("monitor");
     const stateEl = q<HTMLElement>("state");
     const coverage = q<HTMLElement>("coverage");
+    const spotlights = q<HTMLElement>("spotlights");
+    const skylights = q<HTMLElement>("skylights");
     const skCanvas = q<HTMLCanvasElement>("skeleton");
     const skCtx = skCanvas.getContext("2d")!;
     const perm = q<HTMLElement>("perm");
@@ -47,6 +49,10 @@ export default function CreateStudio() {
     const startEl = q<HTMLElement>("start");
     const readyEl = q<HTMLElement>("ready");
     const goBtn = q<HTMLButtonElement>("go");
+    const meterLabel = q<HTMLElement>("meterLabel");
+    const meterBars = Array.from(
+      root.querySelectorAll('[data-fc="meterBar"]')
+    ) as HTMLElement[];
     const poseUI = q<HTMLElement>("poseUi");
     const line1 = q<HTMLElement>("line1");
     const line2 = q<HTMLElement>("line2");
@@ -124,6 +130,94 @@ export default function CreateStudio() {
       bgmStopped = true;
       clearTimeout(bgmTimer);
       bgm?.pause();
+    };
+
+    // Live mic level meter shown on the "ready" screen so the user can confirm
+    // their microphone is picking up sound before starting.
+    let meterCtx: AudioContext | null = null;
+    let meterAnalyser: AnalyserNode | null = null;
+    let meterSource: MediaStreamAudioSourceNode | null = null;
+    let meterGain: GainNode | null = null;
+    let meterData: Uint8Array | null = null;
+    let meterRAF = 0;
+
+    const meterTick = () => {
+      if (!meterAnalyser || !meterData) return;
+      if (meterCtx && meterCtx.state === "suspended") meterCtx.resume?.();
+      meterAnalyser.getByteFrequencyData(meterData);
+      const n = meterBars.length;
+      const binsPer = Math.floor(meterData.length / n) || 1;
+      for (let i = 0; i < n; i++) {
+        let sum = 0;
+        for (let j = 0; j < binsPer; j++) sum += meterData[i * binsPer + j];
+        const avg = sum / binsPer / 255;
+        const h = Math.max(0.12, Math.min(1, avg * 1.7));
+        meterBars[i].style.transform = `scaleY(${h})`;
+      }
+      meterRAF = requestAnimationFrame(meterTick);
+    };
+
+    // Must be created inside a user gesture (the start/retry click) so the
+    // AudioContext starts "running"; created after the async camera awaits it
+    // would be "suspended" and the analyser would only ever read silence.
+    const ensureMeterCtx = () => {
+      if (meterCtx) return;
+      try {
+        const Ctor =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext })
+            .webkitAudioContext;
+        meterCtx = new Ctor();
+        meterCtx.resume?.();
+      } catch {
+        meterCtx = null;
+      }
+    };
+
+    const startMeter = () => {
+      const tracks = stream?.getAudioTracks() ?? [];
+      if (!tracks.length) {
+        meterLabel.textContent = "no mic detected";
+        return;
+      }
+      ensureMeterCtx();
+      if (!meterCtx) {
+        meterLabel.textContent = "mic check unavailable";
+        return;
+      }
+      try {
+        meterCtx.resume?.();
+        meterSource = meterCtx.createMediaStreamSource(new MediaStream(tracks));
+        meterAnalyser = meterCtx.createAnalyser();
+        meterAnalyser.fftSize = 128;
+        meterAnalyser.smoothingTimeConstant = 0.6;
+        // Chrome won't pull audio through a MediaStreamSource unless the graph
+        // reaches the destination — route through a muted gain node so the
+        // analyser actually receives data without any audible feedback.
+        meterGain = meterCtx.createGain();
+        meterGain.gain.value = 0;
+        meterSource.connect(meterAnalyser);
+        meterAnalyser.connect(meterGain);
+        meterGain.connect(meterCtx.destination);
+        meterData = new Uint8Array(meterAnalyser.frequencyBinCount);
+        meterLabel.textContent = "Mic Check";
+        meterTick();
+      } catch {
+        meterLabel.textContent = "mic check unavailable";
+      }
+    };
+
+    const stopMeter = () => {
+      cancelAnimationFrame(meterRAF);
+      meterSource?.disconnect();
+      meterAnalyser?.disconnect();
+      meterGain?.disconnect();
+      meterCtx?.close().catch(() => {});
+      meterCtx = null;
+      meterAnalyser = null;
+      meterSource = null;
+      meterGain = null;
+      meterData = null;
     };
 
     let landmarker: PoseLandmarkerInstance | null = null;
@@ -272,6 +366,7 @@ export default function CreateStudio() {
       if (disposed) return;
       startEl.setAttribute("data-hidden", "true");
       show(readyEl, true);
+      startMeter();
       goBtn.focus();
     }
 
@@ -416,6 +511,8 @@ export default function CreateStudio() {
     function resetAll() {
       enterDark();
       startMusic();
+      show(spotlights, true);
+      show(skylights, true);
       poseIndex = 1;
       photos.length = 0;
       voiceBlob = null;
@@ -641,14 +738,21 @@ export default function CreateStudio() {
     }
 
     /* ---------------- listeners ---------------- */
-    const onStart = () => startCamera();
+    const onStart = () => {
+      ensureMeterCtx();
+      startCamera();
+    };
     const onRetry = (e: MouseEvent) => {
       e.stopPropagation();
+      ensureMeterCtx();
       startCamera();
     };
     const onGo = () => {
+      stopMeter();
       enterDark();
       startMusic();
+      show(spotlights, true);
+      show(skylights, true);
       show(readyEl, false);
       monitor.setAttribute("data-live", "true");
       const AudioCtor =
@@ -663,16 +767,9 @@ export default function CreateStudio() {
     const onAgain = () => resetAll();
     const onMic = () => (recording ? stopRec() : startRec());
     const onDone = () => {
-      // stay in dark mode through the "That's a wrap!" screen; the theme is
-      // only restored when the user navigates away (see cleanup).
-      stopMusic();
-      show(voiceUI, false);
-      line1.textContent = "That's a wrap!";
-      show(line1, true);
-      show(poseUI, true);
-      againBtn.textContent = "START OVER";
-      show(againBtn, true);
-      setPhase("done", performance.now());
+      // TODO: wire up "Generate My Fashion Video!" here — send the captured
+      // photos (`photos`) and voice clip (`voiceBlob`) to the backend.
+      // Intentionally a no-op for now.
     };
 
     startEl.addEventListener("click", onStart);
@@ -689,6 +786,7 @@ export default function CreateStudio() {
       recording = false;
       restoreTheme();
       stopMusic();
+      stopMeter();
       cancelAnimationFrame(loopRAF);
       cancelAnimationFrame(recRAF);
       startEl.removeEventListener("click", onStart);
@@ -706,6 +804,12 @@ export default function CreateStudio() {
 
   return (
     <div ref={rootRef} className={styles.wrap}>
+      <div data-fc="skylights" className={styles.skylights} aria-hidden="true">
+        <span className={`${styles.beam} ${styles.beamL}`} />
+        <span className={`${styles.beam} ${styles.beamC}`} />
+        <span className={`${styles.beam} ${styles.beamR}`} />
+      </div>
+
       <div data-fc="monitor" className={styles.monitor} aria-live="polite">
         <canvas
           data-fc="skeleton"
@@ -731,6 +835,16 @@ export default function CreateStudio() {
           playsInline
           muted
         />
+
+        <div
+          data-fc="spotlights"
+          className={styles.spotlights}
+          aria-hidden="true"
+        >
+          <div className={`${styles.spot} ${styles.spot1}`} />
+          <div className={`${styles.spot} ${styles.spot2}`} />
+          <div className={`${styles.spot} ${styles.spot3}`} />
+        </div>
 
         <div data-fc="poseUi" className={styles.poseUi}>
         <div
@@ -795,7 +909,7 @@ export default function CreateStudio() {
         </div>
         <div data-fc="voiceReview" className={styles.voiceReview}>
           <p data-fc="gotIt" className={styles.gotIt}>
-            Got it
+            That&apos;s a Wrap!
           </p>
           <button data-fc="voiceDone" className={styles.primaryBtn}>
             Generate My Fashion Video!
@@ -815,6 +929,20 @@ export default function CreateStudio() {
           keeping the volume on.
         </p>
         <div className={styles.poseCta}>Get ready to Pose!</div>
+        <div data-fc="meter" className={styles.meter} aria-hidden="true">
+          <div className={styles.meterBars}>
+            <span data-fc="meterBar" className={styles.meterBar} />
+            <span data-fc="meterBar" className={styles.meterBar} />
+            <span data-fc="meterBar" className={styles.meterBar} />
+            <span data-fc="meterBar" className={styles.meterBar} />
+            <span data-fc="meterBar" className={styles.meterBar} />
+            <span data-fc="meterBar" className={styles.meterBar} />
+            <span data-fc="meterBar" className={styles.meterBar} />
+          </div>
+          <span data-fc="meterLabel" className={styles.meterLabel}>
+            Mic Check
+          </span>
+        </div>
         <button data-fc="go" className={styles.primaryBtn}>
           Make me Fabulous!
         </button>

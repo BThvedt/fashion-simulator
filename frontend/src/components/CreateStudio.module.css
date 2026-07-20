@@ -118,6 +118,148 @@
   display: none;
 }
 
+/* ---------- moving "showtime" spotlights ---------- */
+.spotlights {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  overflow: hidden;
+  pointer-events: none;
+  display: none;
+  mix-blend-mode: screen;
+}
+.spotlights[data-show="true"] {
+  display: block;
+}
+.spot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 48%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  filter: blur(38px);
+  opacity: 0.5;
+  will-change: transform;
+}
+.spot1 {
+  background: radial-gradient(
+    circle,
+    rgba(255, 0, 200, 0.85),
+    transparent 65%
+  );
+  animation: sweep1 7s ease-in-out infinite;
+}
+.spot2 {
+  background: radial-gradient(circle, rgba(0, 220, 255, 0.85), transparent 65%);
+  animation: sweep2 9.5s ease-in-out infinite;
+}
+.spot3 {
+  background: radial-gradient(circle, rgba(255, 200, 0, 0.85), transparent 65%);
+  animation: sweep3 8.5s ease-in-out infinite;
+}
+@keyframes sweep1 {
+  0% {
+    transform: translate(-25%, -20%) scale(1);
+  }
+  50% {
+    transform: translate(90%, 55%) scale(1.25);
+  }
+  100% {
+    transform: translate(-25%, -20%) scale(1);
+  }
+}
+@keyframes sweep2 {
+  0% {
+    transform: translate(95%, -25%) scale(1.1);
+  }
+  50% {
+    transform: translate(-15%, 70%) scale(0.85);
+  }
+  100% {
+    transform: translate(95%, -25%) scale(1.1);
+  }
+}
+@keyframes sweep3 {
+  0% {
+    transform: translate(40%, 95%) scale(1);
+  }
+  50% {
+    transform: translate(20%, -20%) scale(1.3);
+  }
+  100% {
+    transform: translate(40%, 95%) scale(1);
+  }
+}
+
+/* ---------- movie-premiere searchlights (full-viewport backdrop) ---------- */
+.skylights {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  overflow: hidden;
+  pointer-events: none;
+  display: none;
+}
+.skylights[data-show="true"] {
+  display: block;
+}
+.beam {
+  position: absolute;
+  bottom: -8%;
+  width: 220px;
+  max-width: 26vw;
+  height: 94vh;
+  transform-origin: bottom center;
+  background: linear-gradient(
+    to top,
+    rgba(255, 255, 255, 0.45),
+    rgba(255, 255, 255, 0.07) 55%,
+    transparent 80%
+  );
+  clip-path: polygon(44% 100%, 56% 100%, 100% 0, 0 0);
+  filter: blur(14px);
+  mix-blend-mode: screen;
+  opacity: 0.75;
+}
+.beamL {
+  left: 6%;
+  animation: sway-l 6s ease-in-out infinite alternate;
+}
+.beamC {
+  left: 50%;
+  margin-left: -110px;
+  animation: sway-c 7.5s ease-in-out infinite alternate;
+}
+.beamR {
+  right: 6%;
+  animation: sway-r 6.8s ease-in-out infinite alternate;
+}
+@keyframes sway-l {
+  from {
+    transform: rotate(-30deg);
+  }
+  to {
+    transform: rotate(16deg);
+  }
+}
+@keyframes sway-c {
+  from {
+    transform: rotate(-16deg);
+  }
+  to {
+    transform: rotate(16deg);
+  }
+}
+@keyframes sway-r {
+  from {
+    transform: rotate(30deg);
+  }
+  to {
+    transform: rotate(-16deg);
+  }
+}
+
 /* ---------- full-body overlay ---------- */
 .coverage {
   position: absolute;
@@ -184,6 +326,42 @@
   font-weight: 700;
   font-size: clamp(18px, 2.6vw, 26px);
   letter-spacing: 0.01em;
+}
+
+/* small live mic-level tester on the ready screen */
+.meter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.meterBars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 34px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in oklch, var(--border) 30%, transparent);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--card) 10%, transparent);
+  backdrop-filter: blur(4px);
+}
+.meterBar {
+  width: 5px;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--success);
+  transform: scaleY(0.12);
+  transform-origin: bottom;
+  transition: transform 0.06s linear;
+}
+.meterLabel {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--foreground);
 }
 
 .primaryBtn {
@@ -544,6 +722,14 @@
     transition: none;
   }
   .poseLine[data-show="true"] {
+    animation: none;
+  }
+  .spot1,
+  .spot2,
+  .spot3,
+  .beamL,
+  .beamC,
+  .beamR {
     animation: none;
   }
 }
