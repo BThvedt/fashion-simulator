@@ -143,7 +143,7 @@ export default function CreateStudio() {
     let meterAnalyser: AnalyserNode | null = null;
     let meterSource: MediaStreamAudioSourceNode | null = null;
     let meterGain: GainNode | null = null;
-    let meterData: Uint8Array | null = null;
+    let meterData: Uint8Array<ArrayBuffer> | null = null;
     let meterRAF = 0;
 
     const meterTick = () => {
@@ -204,7 +204,7 @@ export default function CreateStudio() {
         meterSource.connect(meterAnalyser);
         meterAnalyser.connect(meterGain);
         meterGain.connect(meterCtx.destination);
-        meterData = new Uint8Array(meterAnalyser.frequencyBinCount);
+        meterData = new Uint8Array(new ArrayBuffer(meterAnalyser.frequencyBinCount));
         meterLabel.textContent = "Mic Check";
         meterTick();
       } catch {
