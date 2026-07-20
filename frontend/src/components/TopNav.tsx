@@ -5,8 +5,10 @@ import { usePathname } from "next/navigation";
 import { logout } from "@/app/actions/auth";
 
 const links = [
+  { href: "/", label: "Videos" },
+  { href: "/tutorial", label: "Tutorial" },
+  { href: "/privacy", label: "Policy" },
   { href: "/profile", label: "Profile" },
-  { href: "/video", label: "Video" },
 ];
 
 export default function TopNav() {
