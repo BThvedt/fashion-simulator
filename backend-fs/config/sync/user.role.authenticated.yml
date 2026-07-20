@@ -4,10 +4,12 @@ status: true
 dependencies:
   config:
     - filter.format.basic_html
+    - node.type.fashion_video
   module:
     - comment
     - file
     - filter
+    - node
     - search
     - shortcut
     - system
@@ -21,6 +23,7 @@ permissions:
   - 'access comments'
   - 'access content'
   - 'access shortcuts'
+  - 'create fashion_video content'
   - 'delete own files'
   - 'post comments'
   - 'search content'

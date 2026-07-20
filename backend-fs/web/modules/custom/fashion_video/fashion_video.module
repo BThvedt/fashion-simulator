@@ -1,0 +1,62 @@
+<?php
+
+/**
+ * @file
+ * Per-author access control for Fashion Video nodes.
+ *
+ * Non-admin users may only view the fashion_video nodes they own. Users with
+ * "bypass node access" (the administrator role is `is_admin`) continue to see
+ * every fashion_video node. Other content types are untouched: they receive
+ * Drupal's default public grant.
+ *
+ * After enabling this module (or changing this logic) rebuild node access:
+ *   drush php:eval "node_access_rebuild();"
+ */
+
+declare(strict_types=1);
+
+use Drupal\Core\Session\AccountInterface;
+use Drupal\node\NodeInterface;
+
+/**
+ * The node access realm keyed by a fashion_video node's author uid.
+ */
+const FASHION_VIDEO_REALM = 'fashion_video_author';
+
+/**
+ * Implements hook_node_grants().
+ *
+ * Hands every account a single grant in the author realm keyed by its own uid,
+ * so it matches the access records of the fashion_video nodes it authored.
+ */
+function fashion_video_node_grants(AccountInterface $account, string $op): array {
+  $grants = [];
+  if ($op === 'view') {
+    $grants[FASHION_VIDEO_REALM] = [(int) $account->id()];
+  }
+  return $grants;
+}
+
+/**
+ * Implements hook_node_access_records().
+ *
+ * fashion_video nodes are granted to their author only. Returning no records
+ * for other bundles lets Drupal apply its default "all/0" public grant, so
+ * articles and pages behave exactly as before.
+ */
+function fashion_video_node_access_records(NodeInterface $node): array {
+  if ($node->bundle() !== 'fashion_video') {
+    return [];
+  }
+
+  return [
+    [
+      'realm' => FASHION_VIDEO_REALM,
+      'gid' => (int) $node->getOwnerId(),
+      'grant_view' => 1,
+      'grant_update' => 1,
+      'grant_delete' => 1,
+      'priority' => 0,
+    ],
+  ];
+}

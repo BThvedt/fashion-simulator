@@ -1,0 +1,7 @@
+name: 'Fashion Video'
+type: module
+description: 'Per-author access control for Fashion Video nodes: authors see their own, admins see all.'
+package: Custom
+core_version_requirement: ^11
+dependencies:
+  - drupal:node

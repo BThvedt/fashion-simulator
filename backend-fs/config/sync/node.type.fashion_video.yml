@@ -1,0 +1,11 @@
+uuid: a1000000-0000-4000-8000-000000000001
+langcode: en
+status: true
+dependencies: {  }
+name: 'Fashion Video'
+type: fashion_video
+description: 'A generated fashion video, with captured pose images plus AI-generated images and video.'
+help: null
+new_revision: true
+preview_mode: 1
+display_submitted: true

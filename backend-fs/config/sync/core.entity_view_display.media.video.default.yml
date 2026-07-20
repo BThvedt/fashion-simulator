@@ -1,0 +1,28 @@
+uuid: a1000000-0000-4000-8000-000000000019
+langcode: en
+status: true
+dependencies:
+  config:
+    - field.field.media.video.field_media_video_file
+    - media.type.video
+  module:
+    - file
+id: media.video.default
+targetEntityType: media
+bundle: video
+mode: default
+content:
+  field_media_video_file:
+    type: file_video
+    label: hidden
+    weight: 0
+    region: content
+    settings:
+      muted: false
+      width: 640
+      height: 480
+      autoplay: false
+      loop: false
+    third_party_settings: {  }
+hidden:
+  name: true

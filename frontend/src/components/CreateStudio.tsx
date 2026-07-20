@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { createFashionVideo } from "@/app/actions/content";
 import styles from "./CreateStudio.module.css";
 
 /* Minimal typings for the parts of @mediapipe/tasks-vision we use. */
@@ -27,6 +29,9 @@ interface VisionModule {
 
 export default function CreateStudio() {
   const rootRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  const routerRef = useRef(router);
+  routerRef.current = router;
 
   useEffect(() => {
     const root = rootRef.current;
@@ -766,10 +771,27 @@ export default function CreateStudio() {
     };
     const onAgain = () => resetAll();
     const onMic = () => (recording ? stopRec() : startRec());
-    const onDone = () => {
-      // TODO: wire up "Generate My Fashion Video!" here — send the captured
-      // photos (`photos`) and voice clip (`voiceBlob`) to the backend.
-      // Intentionally a no-op for now.
+    let generating = false;
+    const onDone = async () => {
+      if (generating) return;
+      generating = true;
+      voiceDone.disabled = true;
+      voiceDone.textContent = "Generating…";
+      // TODO: also upload the captured photos (`photos`) and voice clip
+      // (`voiceBlob`) once media upload endpoints exist. For now this just
+      // creates the content item titled with the current date/time.
+      const result = await createFashionVideo();
+      if (disposed) return;
+      if (result.ok) {
+        stopMusic();
+        restoreTheme();
+        routerRef.current.push(`/content/${result.id}`);
+      } else {
+        generating = false;
+        voiceDone.disabled = false;
+        voiceDone.textContent = "Generate My Fashion Video!";
+        gotIt.textContent = result.error;
+      }
     };
 
     startEl.addEventListener("click", onStart);

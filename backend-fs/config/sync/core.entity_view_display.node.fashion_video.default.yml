@@ -1,0 +1,43 @@
+uuid: a1000000-0000-4000-8000-000000000009
+langcode: en
+status: true
+dependencies:
+  config:
+    - field.field.node.fashion_video.field_ai_images
+    - field.field.node.fashion_video.field_generated_video
+    - field.field.node.fashion_video.field_pose_images
+    - node.type.fashion_video
+id: node.fashion_video.default
+targetEntityType: node
+bundle: fashion_video
+mode: default
+content:
+  field_pose_images:
+    type: entity_reference_entity_view
+    label: above
+    weight: 1
+    region: content
+    settings:
+      view_mode: default
+      link: false
+    third_party_settings: {  }
+  field_ai_images:
+    type: entity_reference_entity_view
+    label: above
+    weight: 2
+    region: content
+    settings:
+      view_mode: default
+      link: false
+    third_party_settings: {  }
+  field_generated_video:
+    type: entity_reference_entity_view
+    label: above
+    weight: 3
+    region: content
+    settings:
+      view_mode: default
+      link: false
+    third_party_settings: {  }
+hidden:
+  links: true
