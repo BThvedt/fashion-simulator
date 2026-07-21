@@ -21,3 +21,15 @@ fashion_video.media:
   options:
     _auth: ['oauth2', 'cookie']
     no_cache: 'TRUE'
+
+fashion_video.generate_images:
+  path: '/fashion-video/{uuid}/generate-images'
+  defaults:
+    _controller: 'Drupal\fashion_video\Controller\FashionVideoUploadController::generateImages'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    uuid: '[0-9a-fA-F-]+'
+  options:
+    _auth: ['oauth2', 'cookie']
+    no_cache: 'TRUE'

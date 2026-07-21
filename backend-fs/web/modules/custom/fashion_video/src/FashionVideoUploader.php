@@ -51,11 +51,15 @@ final class FashionVideoUploader {
    *   The raw (already base64-decoded) image bytes.
    * @param string $extension
    *   File extension without the dot, e.g. "jpg", "png", "webp".
+   * @param string $prefix
+   *   Filename prefix, e.g. "pose-" or "ai-".
+   * @param string $alt
+   *   Alt text for the image media.
    *
    * @return \Drupal\media\MediaInterface
    *   The saved, published image media entity.
    */
-  public function addImage(NodeInterface $node, string $binary, string $extension = 'jpg'): MediaInterface {
+  public function addImage(NodeInterface $node, string $binary, string $extension = 'jpg', string $prefix = 'pose-', string $alt = 'Fashion video pose image'): MediaInterface {
     $uid = (int) $node->getOwnerId();
     // Use the node title (a date + timestamp) as the per-video folder name,
     // reduced to key-safe characters. Fall back to the UUID if the title is
@@ -70,7 +74,7 @@ final class FashionVideoUploader {
       FileSystemInterface::CREATE_DIRECTORY | FileSystemInterface::MODIFY_PERMISSIONS,
     );
 
-    $filename = uniqid('pose-', TRUE) . '.' . $extension;
+    $filename = uniqid($prefix, TRUE) . '.' . $extension;
     $file = $this->fileRepository->writeData(
       $binary,
       $directory . '/' . $filename,
@@ -83,7 +87,7 @@ final class FashionVideoUploader {
       'name' => $filename,
       'field_media_image' => [
         'target_id' => $file->id(),
-        'alt' => 'Fashion video pose image',
+        'alt' => $alt,
       ],
     ]);
     $media->setPublished();

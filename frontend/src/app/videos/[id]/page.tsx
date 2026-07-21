@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { getToken } from "@/lib/auth";
 import { drupalFetch } from "@/lib/drupal";
+import AiRunway from "@/components/AiRunway";
 
 export const metadata = { title: "Fashion Video" };
 
@@ -15,6 +16,7 @@ interface StyleAnalysis {
 interface FashionVideoMedia {
   title: string;
   poses: string[];
+  aiImages: string[];
   analysis: StyleAnalysis | null;
 }
 
@@ -38,7 +40,11 @@ export default async function VideoPage({
     notFound();
   }
 
-  const { title, poses, analysis } = (await res.json()) as FashionVideoMedia;
+  const data = (await res.json()) as Partial<FashionVideoMedia>;
+  const title = data.title ?? "";
+  const poses = data.poses ?? [];
+  const aiImages = data.aiImages ?? [];
+  const analysis = data.analysis ?? null;
   // Title is stored with seconds (e.g. "2026-07-20 16:19:32"); display to the
   // minute.
   const display = (title ?? "").replace(/:\d{2}$/, "");
@@ -114,6 +120,14 @@ export default async function VideoPage({
               )}
             </dl>
           </section>
+        )}
+
+        {poses.length > 0 && (
+          <AiRunway
+            id={id}
+            initialImages={aiImages}
+            expected={Math.min(poses.length, 3)}
+          />
         )}
       </main>
     </div>

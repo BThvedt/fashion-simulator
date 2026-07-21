@@ -5,6 +5,7 @@ dependencies:
   config:
     - field.field.node.fashion_video.field_ai_images
     - field.field.node.fashion_video.field_generated_video
+    - field.field.node.fashion_video.field_image_prompt
     - field.field.node.fashion_video.field_pose_images
     - field.field.node.fashion_video.field_style_analysis
     - node.type.fashion_video
@@ -54,6 +55,14 @@ content:
   field_style_analysis:
     type: string_textarea
     weight: 4
+    region: content
+    settings:
+      rows: 5
+      placeholder: ''
+    third_party_settings: {  }
+  field_image_prompt:
+    type: string_textarea
+    weight: 5
     region: content
     settings:
       rows: 5

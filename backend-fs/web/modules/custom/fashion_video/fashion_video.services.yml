@@ -16,3 +16,8 @@ services:
     arguments:
       - '@http_client'
       - '@logger.channel.fashion_video'
+  fashion_video.image_generator:
+    class: Drupal\fashion_video\ImageGenerator
+    arguments:
+      - '@http_client'
+      - '@logger.channel.fashion_video'

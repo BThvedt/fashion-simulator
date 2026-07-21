@@ -68,6 +68,45 @@ export async function createFashionVideo(
 }
 
 /**
+ * Kicks off AI runway-image generation for a node. Fire-and-forget: the backend
+ * keeps working after the client aborts (it sets ignore_user_abort), so we use a
+ * short timeout and swallow the resulting abort/error. Poll `getFashionVideoMedia`
+ * for the results.
+ */
+export async function ensureFashionImages(id: string): Promise<void> {
+  try {
+    await drupalFetch(`/fashion-video/${id}/generate-images`, {
+      method: "POST",
+      signal: AbortSignal.timeout(4000),
+    });
+  } catch {
+    // Expected: request is intentionally abandoned; generation continues server-side.
+  }
+}
+
+/**
+ * Reads the current pose + AI image URLs (presigned) for a node. Used to poll
+ * while runway images are being generated.
+ */
+export async function getFashionVideoMedia(
+  id: string
+): Promise<{ poses: string[]; aiImages: string[] } | null> {
+  try {
+    const res = await drupalFetch(`/fashion-video/${id}/media`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      poses?: string[];
+      aiImages?: string[];
+    };
+    return { poses: data.poses ?? [], aiImages: data.aiImages ?? [] };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Sends captured pose images to the custom Drupal endpoint that stores them as
  * private media on the node. Swallows errors (best-effort) so a storage hiccup
  * doesn't strand the user on the capture screen.
