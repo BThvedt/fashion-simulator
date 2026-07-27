@@ -59,19 +59,29 @@ export default async function VideoPage({
           {display}
         </h1>
 
-        {poses.length > 0 && (
-          <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
-            {poses.map((src, i) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                key={src}
-                src={src}
-                alt={`Pose ${i + 1}`}
-                className="w-full rounded-lg border border-border object-cover"
-              />
-            ))}
+        {/* Reserved for the eventual generated video. */}
+        <div className="mt-8">
+          <div className="mx-auto flex aspect-[9/16] w-full max-w-xs items-center justify-center rounded-2xl border border-border bg-muted text-center">
+            <div className="px-6">
+              <svg
+                className="mx-auto h-10 w-10 text-muted-foreground"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <rect x="2" y="4" width="20" height="16" rx="2" />
+                <path d="m10 9 5 3-5 3z" />
+              </svg>
+              <p className="mt-3 text-sm text-muted-foreground">
+                Your fashion video is coming soon.
+              </p>
+            </div>
           </div>
-        )}
+        </div>
 
         {analysis && (
           <section className="mt-10 rounded-2xl border border-border bg-card p-6">
@@ -123,11 +133,7 @@ export default async function VideoPage({
         )}
 
         {poses.length > 0 && (
-          <AiRunway
-            id={id}
-            initialImages={aiImages}
-            expected={Math.min(poses.length, 3)}
-          />
+          <AiRunway id={id} poses={poses} initialImages={aiImages} />
         )}
       </main>
     </div>

@@ -9,6 +9,7 @@ use Drupal\Core\Lock\LockBackendInterface;
 use Drupal\fashion_video\AestheticGenerator;
 use Drupal\fashion_video\FashionVideoUploader;
 use Drupal\fashion_video\ImageGenerator;
+use Drupal\media\MediaInterface;
 use Drupal\node\NodeInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -232,31 +233,29 @@ final class FashionVideoUploadController extends ControllerBase {
 
       $prompts = $this->imageGenerator->buildPrompts($analysis);
       $poses = $node->get('field_pose_images')->referencedEntities();
-      $count = min(count($poses), self::MAX_AI_IMAGES);
+      $bodyCount = min(count($poses), self::MAX_AI_IMAGES);
 
       $usedPrompts = [];
       $created = 0;
-      for ($i = 0; $i < $count; $i++) {
-        $file = $poses[$i]->get('field_media_image')->entity;
-        if (!$file) {
-          continue;
-        }
-        $binary = @file_get_contents($file->getFileUri());
-        if ($binary === FALSE || $binary === '') {
-          continue;
-        }
-        $ext = pathinfo((string) $file->getFilename(), PATHINFO_EXTENSION) ?: 'jpg';
 
+      // Runway looks from the body poses.
+      for ($i = 0; $i < $bodyCount; $i++) {
         $prompt = $prompts[$i % count($prompts)];
-        $image = $this->imageGenerator->generate($prompt, $binary, $ext);
-        if ($image === NULL) {
-          continue;
+        if ($this->generateFromPose($node, $poses[$i], $prompt)) {
+          $usedPrompts[] = 'Image ' . ($i + 1) . ":\n" . $prompt;
+          $created++;
         }
+      }
 
-        $media = $this->uploader->addImage($node, $image, 'png', 'ai-', 'AI-generated fashion image');
-        $node->get('field_ai_images')->appendItem(['target_id' => $media->id()]);
-        $usedPrompts[] = 'Image ' . ($i + 1) . ":\n" . $prompt;
-        $created++;
+      // The capture flow appends a single face closeup after the body poses, so
+      // any pose beyond the first three is the closeup — give it its own beauty
+      // shot that copies the expression and borrows the runway styling.
+      if (count($poses) > self::MAX_AI_IMAGES) {
+        $closeupPrompt = $this->imageGenerator->buildCloseupPrompt($analysis);
+        if ($this->generateFromPose($node, $poses[self::MAX_AI_IMAGES], $closeupPrompt)) {
+          $usedPrompts[] = "Closeup:\n" . $closeupPrompt;
+          $created++;
+        }
       }
 
       if ($created > 0) {
@@ -271,6 +270,35 @@ final class FashionVideoUploadController extends ControllerBase {
     finally {
       $this->lock->release($lockId);
     }
+  }
+
+  /**
+   * Generates one styled image from a pose media entity.
+   *
+   * On success the new image media is appended to field_ai_images.
+   *
+   * @return bool
+   *   TRUE if an image was generated and attached.
+   */
+  private function generateFromPose(NodeInterface $node, MediaInterface $pose, string $prompt): bool {
+    $file = $pose->get('field_media_image')->entity;
+    if (!$file) {
+      return FALSE;
+    }
+    $binary = @file_get_contents($file->getFileUri());
+    if ($binary === FALSE || $binary === '') {
+      return FALSE;
+    }
+    $ext = pathinfo((string) $file->getFilename(), PATHINFO_EXTENSION) ?: 'jpg';
+
+    $image = $this->imageGenerator->generate($prompt, $binary, $ext);
+    if ($image === NULL) {
+      return FALSE;
+    }
+
+    $media = $this->uploader->addImage($node, $image, 'png', 'ai-', 'AI-generated fashion image');
+    $node->get('field_ai_images')->appendItem(['target_id' => $media->id()]);
+    return TRUE;
   }
 
   /**

@@ -8,20 +8,23 @@ import {
 
 const POLL_INTERVAL_MS = 5000;
 const MAX_ATTEMPTS = 48; // ~4 minutes
+const BODY_COUNT = 3;
 
 /**
- * Shows the AI-generated runway images for a fashion video. If none exist yet,
- * it triggers generation on the backend and polls until they appear, showing
- * placeholders in the meantime.
+ * Shows the captured pose photos next to their AI-generated counterparts: the
+ * three body poses sit above their three runway looks, and the face closeup
+ * sits beside its generated portrait. If the generated images don't exist yet,
+ * generation is triggered and polled, with spinners in the generated slots
+ * meanwhile.
  */
 export default function AiRunway({
   id,
+  poses,
   initialImages,
-  expected,
 }: {
   id: string;
+  poses: string[];
   initialImages: string[];
-  expected: number;
 }) {
   const [images, setImages] = useState<string[]>(initialImages ?? []);
   const [failed, setFailed] = useState(false);
@@ -60,7 +63,33 @@ export default function AiRunway({
   }, [id, images.length]);
 
   const pending = images.length === 0 && !failed;
-  const slots = Math.max(expected, 1);
+
+  const bodyPoses = poses.slice(0, BODY_COUNT);
+  const closeupPose = poses[BODY_COUNT];
+  const bodyImages = images.slice(0, BODY_COUNT);
+  const faceImage = images[BODY_COUNT];
+
+  // A generated image, or a placeholder (spinner while generation is pending).
+  const generated = (src: string | undefined, alt: string, aspect: string) =>
+    src ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt={alt}
+        className={`w-full rounded-lg border border-border object-cover ${aspect}`}
+      />
+    ) : (
+      <div
+        className={`flex w-full items-center justify-center rounded-lg border border-border bg-muted ${aspect}`}
+      >
+        {pending && (
+          <div
+            className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground"
+            aria-label="Generating"
+          />
+        )}
+      </div>
+    );
 
   return (
     <section className="mt-10">
@@ -74,36 +103,43 @@ export default function AiRunway({
       )}
       {failed && (
         <p className="mt-1 text-sm text-muted-foreground">
-          We couldn&apos;t generate your runway looks this time. Try refreshing in
-          a bit.
+          We couldn&apos;t generate your runway looks this time. Try refreshing
+          in a bit.
         </p>
       )}
 
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {images.length > 0
-          ? images.map((src, i) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                key={src}
-                src={src}
-                alt={`Runway look ${i + 1}`}
-                className="w-full rounded-lg border border-border object-cover"
-              />
-            ))
-          : Array.from({ length: slots }).map((_, i) => (
-              <div
-                key={i}
-                className="flex aspect-[2/3] w-full items-center justify-center rounded-lg border border-border bg-muted"
-              >
-                {pending && (
-                  <div
-                    className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground"
-                    aria-label="Generating"
-                  />
-                )}
-              </div>
-            ))}
-      </div>
+      {/* Body poses (top row) paired with their generated runway looks (below). */}
+      {bodyPoses.length > 0 && (
+        <div className="mt-4 grid grid-cols-3 gap-4">
+          {bodyPoses.map((src, i) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={`pose-${i}`}
+              src={src}
+              alt={`Pose ${i + 1}`}
+              className="aspect-video w-full rounded-lg border border-border object-cover"
+            />
+          ))}
+          {bodyPoses.map((_, i) => (
+            <div key={`look-${i}`}>
+              {generated(bodyImages[i], `Runway look ${i + 1}`, "aspect-[2/3]")}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Face closeup beside its generated portrait, 50% each on larger screens. */}
+      {closeupPose && (
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={closeupPose}
+            alt="Closeup"
+            className="aspect-[3/4] w-full rounded-lg border border-border object-cover"
+          />
+          {generated(faceImage, "Generated closeup", "aspect-[3/4]")}
+        </div>
+      )}
     </section>
   );
 }

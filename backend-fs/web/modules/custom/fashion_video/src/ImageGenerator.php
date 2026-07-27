@@ -61,13 +61,29 @@ final class ImageGenerator {
       . 'serious yet ridiculous. Keep the SAME person and the SAME pose as the '
       . 'reference image. Dress them in an extravagant, high-maintenance, slightly '
       . 'silly couture outfit inspired by the "%s" aesthetic%s, while keeping at '
-      . 'least a few recognizable elements of their original outfit. Give them a '
-      . 'dramatic, elaborate, high-maintenance hairstyle%s. Dramatic runway '
-      . 'lighting, cinematic, hyper-detailed, luxury magazine quality.',
+      . 'least a few recognizable elements of their original outfit.%s',
       $aesthetic,
       $era !== '' ? sprintf(' (%s)', $era) : '',
-      $accessory !== '' ? sprintf(', accessorized with %s', $accessory) : '',
+      $accessory !== '' ? sprintf(' Accessorize with %s.', $accessory) : '',
     );
+
+    // One hairstyle direction per image so the set isn't three giant wigs:
+    //   0) close to the reference hair, 1) deliberately small but funny,
+    //   2) the full over-the-top avant-garde look.
+    $hair = [
+      ' For the hair, stay CLOSE to the hairstyle in the reference photo — the '
+      . 'same overall cut, length and color — just lightly restyled and polished '
+      . 'for the runway; do NOT add a big wig or voluminous styling.',
+      ' Give them a deliberately UNDERSTATED, decidedly NOT-big hairstyle — sleek '
+      . 'and flat (severely slicked-back, a tiny neat bun, or plastered-down) — '
+      . 'played completely straight so it reads as quietly funny.',
+      ' Give them an outrageously BIG, elaborate, gravity-defying avant-garde '
+      . 'hairstyle.',
+    ];
+
+    $finish = ' Dramatic runway lighting, cinematic, hyper-detailed, luxury '
+      . 'magazine quality. Do NOT render any text, letters, words, numbers, '
+      . 'captions, watermarks, logos, or signage anywhere in the image.';
 
     $scenes = [
       sprintf(
@@ -97,7 +113,41 @@ final class ImageGenerator {
       ),
     ];
 
-    return [$base . $scenes[0], $base . $scenes[1], $base . $scenes[2]];
+    return [
+      $base . $hair[0] . $scenes[0] . $finish,
+      $base . $hair[1] . $scenes[1] . $finish,
+      $base . $hair[2] . $scenes[2] . $finish,
+    ];
+  }
+
+  /**
+   * Builds the prompt for the face-closeup beauty shot.
+   *
+   * Restyles the captured closeup into the same aesthetic as the runway looks
+   * while copying the person's expression and gently sculpting the face.
+   *
+   * @param array{aesthetic?: string, era?: string, description?: string, accessory?: string, props?: array<int, string>} $analysis
+   *   The stored aesthetic analysis.
+   */
+  public function buildCloseupPrompt(array $analysis): string {
+    $aesthetic = trim((string) ($analysis['aesthetic'] ?? 'eclectic'));
+    $accessory = trim((string) ($analysis['accessory'] ?? ''));
+
+    return sprintf(
+      'Ultra-glossy high-fashion BEAUTY CLOSEUP portrait, an intentionally absurd '
+      . 'and humorous parody of an over-produced Balenciaga campaign — deadpan '
+      . 'serious yet ridiculous. Keep the SAME person as the reference image and '
+      . 'copy their facial EXPRESSION from the reference. Restyle them into the '
+      . '"%s" aesthetic, borrowing the same couture styling and dramatic hair '
+      . 'energy as the runway looks%s. Tight head-and-shoulders framing; subtly '
+      . 'emphasize the cheekbones and jawline with sculpting contour and light so '
+      . 'they look a bit sharper (flattering, not grotesque). Dramatic beauty '
+      . 'lighting, cinematic, hyper-detailed, luxury magazine quality. Do NOT '
+      . 'render any text, letters, words, numbers, captions, watermarks, logos, '
+      . 'or signage anywhere in the image.',
+      $aesthetic,
+      $accessory !== '' ? sprintf(', accessorized with %s', $accessory) : '',
+    );
   }
 
   /**
