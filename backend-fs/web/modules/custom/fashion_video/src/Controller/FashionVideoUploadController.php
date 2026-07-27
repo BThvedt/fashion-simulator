@@ -32,6 +32,17 @@ final class FashionVideoUploadController extends ControllerBase {
     'image/webp' => 'webp',
   ];
 
+  /** Map of accepted audio mime types to file extensions. */
+  private const AUDIO_EXTENSIONS = [
+    'audio/webm' => 'webm',
+    'audio/ogg' => 'ogg',
+    'audio/mp4' => 'm4a',
+    'audio/x-m4a' => 'm4a',
+    'audio/mpeg' => 'mp3',
+    'audio/wav' => 'wav',
+    'audio/x-wav' => 'wav',
+  ];
+
   /** Maximum AI runway images to generate per video. */
   private const MAX_AI_IMAGES = 3;
 
@@ -86,6 +97,11 @@ final class FashionVideoUploadController extends ControllerBase {
       $node->save();
     }
 
+    // Persist the capture assets (song filename + voice recording). Both are
+    // best-effort: the pose images are already saved, so a bad/oversized clip
+    // shouldn't fail the whole request.
+    $this->storeCaptureAssets($node, $payload);
+
     // Best-effort aesthetic analysis. Images are already saved, so a failure
     // here (missing API key, timeout, etc.) just leaves the node without an
     // analysis rather than losing the upload.
@@ -101,6 +117,41 @@ final class FashionVideoUploadController extends ControllerBase {
       'created' => $created,
       'analysis' => $analysis,
     ], 201);
+  }
+
+  /**
+   * Stores the background song filename and voice recording on the node.
+   *
+   * @param array<string, mixed> $payload
+   *   The decoded request body; may contain "song" (string) and "voice" (a
+   *   base64 data URL of the recorded audio).
+   */
+  private function storeCaptureAssets(NodeInterface $node, array $payload): void {
+    $changed = FALSE;
+
+    $song = $payload['song'] ?? NULL;
+    if (is_string($song) && $song !== '' && $node->hasField('field_song')) {
+      $node->set('field_song', mb_substr($song, 0, 255));
+      $changed = TRUE;
+    }
+
+    $voice = $payload['voice'] ?? NULL;
+    if (is_string($voice) && $voice !== '' && $node->hasField('field_voice')) {
+      try {
+        [$binary, $extension] = $this->decodeAudio($voice);
+        $file = $this->uploader->addFile($node, $binary, $extension, 'voice-');
+        $node->set('field_voice', ['target_id' => $file->id()]);
+        $changed = TRUE;
+      }
+      catch (\Throwable $e) {
+        // Non-fatal: keep the pose images even if the clip can't be stored.
+        $this->getLogger('fashion_video')->warning('Voice upload failed: @msg', ['@msg' => $e->getMessage()]);
+      }
+    }
+
+    if ($changed) {
+      $node->save();
+    }
   }
 
   /**
@@ -120,11 +171,26 @@ final class FashionVideoUploadController extends ControllerBase {
       }
     }
 
+    $song = NULL;
+    if ($node->hasField('field_song') && !$node->get('field_song')->isEmpty()) {
+      $song = $node->get('field_song')->value;
+    }
+
+    $voice = NULL;
+    if ($node->hasField('field_voice') && !$node->get('field_voice')->isEmpty()) {
+      $file = $node->get('field_voice')->entity;
+      if ($file) {
+        $voice = $this->uploader->presignedUrl($file);
+      }
+    }
+
     return new JsonResponse([
       'title' => $node->getTitle(),
       'poses' => $this->presignedImages($node, 'field_pose_images'),
       'aiImages' => $this->presignedImages($node, 'field_ai_images'),
       'analysis' => $analysis,
+      'song' => $song,
+      'voice' => $voice,
     ]);
   }
 
@@ -272,6 +338,34 @@ final class FashionVideoUploadController extends ControllerBase {
     }
 
     return [$binary, self::EXTENSIONS[$mime]];
+  }
+
+  /**
+   * Decodes an audio data-URL into [binary, extension].
+   *
+   * The mime type is normalized so codec suffixes (e.g. "audio/webm;codecs=opus")
+   * still match.
+   *
+   * @return array{0: string, 1: string}
+   */
+  private function decodeAudio(string $audio): array {
+    $mime = 'audio/webm';
+    $data = $audio;
+    if (preg_match('#^data:(?<mime>[\w/+.-]+)(?<params>;[^,]*)?;base64,(?<data>.+)$#s', $audio, $m)) {
+      $mime = strtolower($m['mime']);
+      $data = $m['data'];
+    }
+
+    if (!isset(self::AUDIO_EXTENSIONS[$mime])) {
+      throw new BadRequestHttpException('Unsupported audio type: ' . $mime);
+    }
+
+    $binary = base64_decode($data, TRUE);
+    if ($binary === FALSE || $binary === '') {
+      throw new BadRequestHttpException('Invalid base64 audio data.');
+    }
+
+    return [$binary, self::AUDIO_EXTENSIONS[$mime]];
   }
 
 }

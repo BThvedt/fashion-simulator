@@ -16,6 +16,8 @@
 declare(strict_types=1);
 
 use Drupal\Core\Session\AccountInterface;
+use Drupal\file\FileInterface;
+use Drupal\media\MediaInterface;
 use Drupal\node\NodeInterface;
 
 /**
@@ -59,4 +61,94 @@ function fashion_video_node_access_records(NodeInterface $node): array {
       'priority' => 0,
     ],
   ];
+}
+
+/**
+ * Media/file entity-reference fields whose targets belong to the node.
+ *
+ * - The first three reference media entities (each wrapping a file).
+ * - field_voice references a managed file directly.
+ */
+const FASHION_VIDEO_MEDIA_FIELDS = [
+  'field_pose_images',
+  'field_ai_images',
+  'field_generated_video',
+];
+
+/**
+ * Source (file) fields used by the image and video media bundles.
+ */
+const FASHION_VIDEO_MEDIA_SOURCE_FIELDS = [
+  'field_media_image',
+  'field_media_video_file',
+];
+
+/**
+ * Implements hook_node_delete().
+ *
+ * A fashion_video node owns its uploaded/generated assets (pose images, AI
+ * images, the generated video, and the voice recording). Drupal doesn't cascade
+ * these on node deletion, so we remove the referenced media entities and their
+ * files here. Deleting a File entity triggers File::preDelete(), which unlinks
+ * the underlying object — for s3fs-backed private files that deletes it from S3
+ * immediately (rather than waiting for temporary-file garbage collection).
+ */
+function fashion_video_node_delete(NodeInterface $node): void {
+  if ($node->bundle() !== 'fashion_video') {
+    return;
+  }
+
+  /** @var \Drupal\media\MediaInterface[] $media_entities */
+  $media_entities = [];
+  /** @var \Drupal\file\FileInterface[] $files */
+  $files = [];
+
+  foreach (FASHION_VIDEO_MEDIA_FIELDS as $field_name) {
+    if (!$node->hasField($field_name)) {
+      continue;
+    }
+    foreach ($node->get($field_name)->referencedEntities() as $media) {
+      if (!$media instanceof MediaInterface) {
+        continue;
+      }
+      $media_entities[$media->id()] = $media;
+      foreach (FASHION_VIDEO_MEDIA_SOURCE_FIELDS as $source_field) {
+        if ($media->hasField($source_field) && !$media->get($source_field)->isEmpty()) {
+          $file = $media->get($source_field)->entity;
+          if ($file instanceof FileInterface) {
+            $files[$file->id()] = $file;
+          }
+        }
+      }
+    }
+  }
+
+  // The voice recording is a plain file field (no media wrapper).
+  if ($node->hasField('field_voice') && !$node->get('field_voice')->isEmpty()) {
+    $file = $node->get('field_voice')->entity;
+    if ($file instanceof FileInterface) {
+      $files[$file->id()] = $file;
+    }
+  }
+
+  if (!$media_entities && !$files) {
+    return;
+  }
+
+  // Best-effort: never let cleanup failures block the node deletion itself.
+  try {
+    $entity_type_manager = \Drupal::entityTypeManager();
+    if ($media_entities) {
+      $entity_type_manager->getStorage('media')->delete($media_entities);
+    }
+    if ($files) {
+      $entity_type_manager->getStorage('file')->delete($files);
+    }
+  }
+  catch (\Throwable $e) {
+    \Drupal::logger('fashion_video')->warning('Failed to clean up assets for deleted node @nid: @msg', [
+      '@nid' => $node->id(),
+      '@msg' => $e->getMessage(),
+    ]);
+  }
 }

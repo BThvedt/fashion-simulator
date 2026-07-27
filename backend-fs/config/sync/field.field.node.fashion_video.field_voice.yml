@@ -1,0 +1,27 @@
+uuid: a1000000-0000-4000-8000-000000000025
+langcode: en
+status: true
+dependencies:
+  config:
+    - field.storage.node.field_voice
+    - node.type.fashion_video
+  module:
+    - file
+id: node.fashion_video.field_voice
+field_name: field_voice
+entity_type: node
+bundle: fashion_video
+label: 'Voice Recording'
+description: 'The voice line recorded during capture (used later for the video).'
+required: false
+translatable: false
+default_value: {  }
+default_value_callback: ''
+settings:
+  handler: 'default:file'
+  handler_settings: {  }
+  file_directory: 'voice'
+  file_extensions: 'webm mp4 m4a ogg mp3 wav'
+  max_filesize: ''
+  description_field: false
+field_type: file

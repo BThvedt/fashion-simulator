@@ -8,12 +8,27 @@ import styles from "./CreateStudio.module.css";
 
 /* Minimal typings for the parts of @mediapipe/tasks-vision we use. */
 type Landmark = { x: number; y: number; z: number; visibility?: number };
+type Connection = { start: number; end: number };
 interface PoseResult {
   landmarks?: Landmark[][];
 }
 interface PoseLandmarkerInstance {
   detectForVideo(video: HTMLVideoElement, timestamp: number): PoseResult;
   close(): void;
+}
+interface FaceResult {
+  faceLandmarks?: Landmark[][];
+}
+interface FaceLandmarkerInstance {
+  detectForVideo(video: HTMLVideoElement, timestamp: number): FaceResult;
+  close(): void;
+}
+interface DrawingUtilsInstance {
+  drawConnectors(
+    landmarks: Landmark[],
+    connections: Connection[],
+    options?: { color?: string; lineWidth?: number }
+  ): void;
 }
 interface VisionModule {
   FilesetResolver: {
@@ -24,8 +39,31 @@ interface VisionModule {
       fileset: unknown,
       options: unknown
     ): Promise<PoseLandmarkerInstance>;
-    POSE_CONNECTIONS: { start: number; end: number }[];
+    POSE_CONNECTIONS: Connection[];
   };
+  FaceLandmarker: {
+    createFromOptions(
+      fileset: unknown,
+      options: unknown
+    ): Promise<FaceLandmarkerInstance>;
+    FACE_LANDMARKS_FACE_OVAL: Connection[];
+    FACE_LANDMARKS_LEFT_EYE: Connection[];
+    FACE_LANDMARKS_RIGHT_EYE: Connection[];
+    FACE_LANDMARKS_LEFT_EYEBROW: Connection[];
+    FACE_LANDMARKS_RIGHT_EYEBROW: Connection[];
+    FACE_LANDMARKS_LIPS: Connection[];
+  };
+  DrawingUtils: new (ctx: CanvasRenderingContext2D) => DrawingUtilsInstance;
+}
+
+/** Reads a Blob into a base64 data URL (e.g. "data:audio/webm;base64,..."). */
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
 }
 
 export default function CreateStudio() {
@@ -45,6 +83,8 @@ export default function CreateStudio() {
     const monitor = q<HTMLElement>("monitor");
     const stateEl = q<HTMLElement>("state");
     const coverage = q<HTMLElement>("coverage");
+    const coverageTitle = coverage.querySelector("h2")!;
+    const coverageHint = coverage.querySelector("p")!;
     const spotlights = q<HTMLElement>("spotlights");
     const skylights = q<HTMLElement>("skylights");
     const skCanvas = q<HTMLCanvasElement>("skeleton");
@@ -112,12 +152,16 @@ export default function CreateStudio() {
     let bgm: HTMLAudioElement | null = null;
     let bgmTimer = 0;
     let bgmStopped = true;
+    // Which track was picked, saved to the node so the video render can reuse it.
+    let selectedSong = "";
     const LOOP_GAP_MS = 1200;
 
     const startMusic = () => {
       bgmStopped = false;
       if (!bgm) {
-        bgm = new Audio(SONGS[Math.floor(Math.random() * SONGS.length)]);
+        const src = SONGS[Math.floor(Math.random() * SONGS.length)];
+        selectedSong = src.split("/").pop() ?? src;
+        bgm = new Audio(src);
         bgm.volume = 0.45;
         bgm.addEventListener("ended", () => {
           if (bgmStopped) return;
@@ -234,6 +278,10 @@ export default function CreateStudio() {
     let landmarker: PoseLandmarkerInstance | null = null;
     let running = false;
     let lastVideoTime = -1;
+    // Strictly-increasing timestamp shared by both MediaPipe tasks (see loop()).
+    let mpTs = 0;
+    // Log a detector failure only once so the console isn't flooded per frame.
+    let detectErrLogged = false;
     let latest: PoseResult | null = null;
     let loopRAF = 0;
     let stream: MediaStream | null = null;
@@ -268,16 +316,49 @@ export default function CreateStudio() {
       "tasks-vision@0.10.14",
     ].join("/");
 
-    let CONN: { start: number; end: number }[] = [];
+    let CONN: Connection[] = [];
+
+    // Second capture pass: a face closeup that runs after the body poses. It
+    // reuses the same monitor / countdown / flash UI but swaps pose tracking for
+    // face tracking and a "lean in" coverage gate.
+    type Stage = "body" | "closeup";
+    let stage: Stage = "body";
+    let faceLandmarker: FaceLandmarkerInstance | null = null;
+    let drawingUtils: DrawingUtilsInstance | null = null;
+    let faceConn: {
+      oval: Connection[];
+      leftEye: Connection[];
+      rightEye: Connection[];
+      leftBrow: Connection[];
+      rightBrow: Connection[];
+      lips: Connection[];
+    } | null = null;
+
+    // Face height (forehead→chin) as a fraction of frame height. ~0.18 is a
+    // normal sitting distance; 0.38+ is a proper leaned-in closeup.
+    const CLOSE_FRACTION = 0.38;
+    const FACE_EDGE = 0.05;
+
+    // Coverage-overlay copy for each stage.
+    const COVERAGE_BODY_TITLE = "Please bring your full body into the webcam";
+    const COVERAGE_BODY_HINT = "step back until your head and feet are both in frame";
+    const COVERAGE_FACE_TITLE = "Time for your Closeup!";
+    const COVERAGE_FACE_HINT = "step closer until your face fills the frame";
 
     async function loadModel() {
       const vision = (await import(
         /* webpackIgnore: true */ /* turbopackIgnore: true */ mpUrl
       )) as VisionModule;
-      const { PoseLandmarker, FilesetResolver } = vision;
+      const { PoseLandmarker, FaceLandmarker, FilesetResolver, DrawingUtils } =
+        vision;
       CONN = [...PoseLandmarker.POSE_CONNECTIONS];
-      const fileset = await FilesetResolver.forVisionTasks(`${mpUrl}/wasm`);
-      landmarker = await PoseLandmarker.createFromOptions(fileset, {
+      // Each task gets its OWN FilesetResolver so they run as independent WASM
+      // runtimes. Sharing one resolver makes the two tasks contend for a single
+      // graph runner / GL context, which makes the second task's detectForVideo
+      // throw. The face task also uses the CPU delegate to avoid competing with
+      // the pose task's GPU (WebGL) context.
+      const poseFileset = await FilesetResolver.forVisionTasks(`${mpUrl}/wasm`);
+      landmarker = await PoseLandmarker.createFromOptions(poseFileset, {
         baseOptions: {
           modelAssetPath:
             "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task",
@@ -286,6 +367,25 @@ export default function CreateStudio() {
         runningMode: "VIDEO",
         numPoses: 1,
       });
+      const faceFileset = await FilesetResolver.forVisionTasks(`${mpUrl}/wasm`);
+      faceLandmarker = await FaceLandmarker.createFromOptions(faceFileset, {
+        baseOptions: {
+          modelAssetPath:
+            "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+          delegate: "CPU",
+        },
+        runningMode: "VIDEO",
+        numFaces: 1,
+      });
+      drawingUtils = new DrawingUtils(skCtx);
+      faceConn = {
+        oval: FaceLandmarker.FACE_LANDMARKS_FACE_OVAL,
+        leftEye: FaceLandmarker.FACE_LANDMARKS_LEFT_EYE,
+        rightEye: FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE,
+        leftBrow: FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW,
+        rightBrow: FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW,
+        lips: FaceLandmarker.FACE_LANDMARKS_LIPS,
+      };
     }
     const modelReady = loadModel();
 
@@ -458,9 +558,12 @@ export default function CreateStudio() {
         case "wait":
           if (isFull) {
             resetSequenceUI();
-            line2.textContent = `Pose ${poseIndex} (of ${TOTAL_POSES})`;
             show(poseUI, true);
             show(line1, true);
+            // The closeup pass has a single shot, so no "Pose N of 3" counter.
+            if (stage === "body") {
+              line2.textContent = `Pose ${poseIndex} (of ${TOTAL_POSES})`;
+            }
             setPhase("announce", now);
           }
           break;
@@ -471,9 +574,15 @@ export default function CreateStudio() {
             setPhase("wait", now);
             break;
           }
-          if (t > 1000 && line2.getAttribute("data-show") !== "true")
-            show(line2, true);
-          if (t > 2000) {
+          if (stage === "body") {
+            if (t > 1000 && line2.getAttribute("data-show") !== "true")
+              show(line2, true);
+            if (t > 2000) {
+              show(leader, true);
+              shownNum = 0;
+              setPhase("countdown", now);
+            }
+          } else if (t > 1000) {
             show(leader, true);
             shownNum = 0;
             setPhase("countdown", now);
@@ -513,10 +622,15 @@ export default function CreateStudio() {
 
         case "review":
           if (t > 2200) {
-            if (poseIndex >= TOTAL_POSES) {
+            if (stage === "closeup") {
+              // Closeup captured — hand off to the voice recording phase.
               resetSequenceUI();
               enterVoicePhase();
               setPhase("voice", now);
+            } else if (poseIndex >= TOTAL_POSES) {
+              // Body poses done — switch to the face closeup pass.
+              resetSequenceUI();
+              enterCloseupStage(now);
             } else {
               poseIndex += 1;
               monitor.setAttribute("data-photo", "false");
@@ -531,15 +645,39 @@ export default function CreateStudio() {
       }
     }
 
+    // Switches the studio from body-pose tracking to the face closeup pass.
+    // Resets the acquisition hysteresis so the body's "locked on" state doesn't
+    // carry over, and swaps the coverage/prompt copy to face-tracking wording.
+    function enterCloseupStage(now: number) {
+      stage = "closeup";
+      isFull = false;
+      fullSince = 0;
+      lostSince = 0;
+      monitor.setAttribute("data-photo", "false");
+      monitor.setAttribute("data-body", "none");
+      coverageTitle.textContent = COVERAGE_FACE_TITLE;
+      coverageHint.textContent = COVERAGE_FACE_HINT;
+      line1.textContent = "Hold that closeup!";
+      stateEl.textContent = "NO FACE";
+      resetSequenceUI();
+      setPhase("wait", now);
+    }
+
     function resetAll() {
       enterDark();
       startMusic();
       show(spotlights, true);
       show(skylights, true);
+      stage = "body";
+      isFull = false;
+      fullSince = 0;
+      lostSince = 0;
       poseIndex = 1;
       photos.length = 0;
       voiceBlob = null;
       line1.textContent = "Get ready to Pose!";
+      coverageTitle.textContent = COVERAGE_BODY_TITLE;
+      coverageHint.textContent = COVERAGE_BODY_HINT;
       show(againBtn, false);
       resetSequenceUI();
       show(voiceUI, false);
@@ -686,17 +824,71 @@ export default function CreateStudio() {
       return misses <= 1;
     }
 
+    // Closeup gate: the face bounding box must be (mostly) in frame and tall
+    // enough to count as a proper leaned-in closeup.
+    function checkCloseup(lms: Landmark[]) {
+      let minX = 1,
+        maxX = 0,
+        minY = 1,
+        maxY = 0;
+      for (const lm of lms) {
+        if (lm.x < minX) minX = lm.x;
+        if (lm.x > maxX) maxX = lm.x;
+        if (lm.y < minY) minY = lm.y;
+        if (lm.y > maxY) maxY = lm.y;
+      }
+      const inFrame =
+        minX > -FACE_EDGE &&
+        maxX < 1 + FACE_EDGE &&
+        minY > -FACE_EDGE &&
+        maxY < 1 + FACE_EDGE;
+      return inFrame && maxY - minY >= CLOSE_FRACTION;
+    }
+
     function loop() {
       if (!running) return;
       const now = performance.now();
 
-      if (video.currentTime !== lastVideoTime && landmarker) {
+      const detector = stage === "closeup" ? faceLandmarker : landmarker;
+      if (video.currentTime !== lastVideoTime && detector) {
         lastVideoTime = video.currentTime;
-        latest = landmarker.detectForVideo(video, now);
-        const lms = latest.landmarks?.[0];
 
-        const rawFull = !!lms && checkFullBody(lms);
-        if (rawFull) {
+        // MediaPipe VIDEO mode requires strictly-increasing timestamps. The pose
+        // and face tasks are built from one FilesetResolver and share a timestamp
+        // domain, so both must draw from a single monotonic counter — otherwise
+        // the first face detect after the pose pass throws a timestamp error.
+        mpTs = Math.max(mpTs + 1, Math.round(now));
+
+        let poseLms: Landmark[] | undefined;
+        let faceLms: Landmark[] | undefined;
+        let rawOk = false;
+        let detected = false;
+
+        try {
+          if (stage === "closeup") {
+            faceLms = faceLandmarker!.detectForVideo(video, mpTs)
+              .faceLandmarks?.[0];
+            detected = !!faceLms;
+            rawOk = !!faceLms && checkCloseup(faceLms);
+          } else {
+            latest = landmarker!.detectForVideo(video, mpTs);
+            poseLms = latest.landmarks?.[0];
+            detected = !!poseLms;
+            rawOk = !!poseLms && checkFullBody(poseLms);
+          }
+        } catch (err) {
+          if (!detectErrLogged) {
+            detectErrLogged = true;
+            console.error(
+              `[fashion_video] ${stage} detectForVideo failed:`,
+              err
+            );
+          }
+          loopRAF = requestAnimationFrame(loop);
+          return;
+        }
+
+        if (rawOk) {
           lostSince = 0;
           if (!fullSince) fullSince = now;
           if (!isFull && now - fullSince > GAIN_MS) isFull = true;
@@ -708,20 +900,31 @@ export default function CreateStudio() {
 
         monitor.setAttribute(
           "data-body",
-          isFull ? "full" : lms ? "partial" : "none"
+          isFull ? "full" : detected ? "partial" : "none"
         );
-        stateEl.textContent = isFull
-          ? "FULL BODY"
-          : lms
-            ? "PARTIAL"
-            : "NO BODY";
+        if (stage === "closeup") {
+          stateEl.textContent = isFull
+            ? "CLOSEUP"
+            : detected
+              ? "TOO FAR"
+              : "NO FACE";
+        } else {
+          stateEl.textContent = isFull
+            ? "FULL BODY"
+            : detected
+              ? "PARTIAL"
+              : "NO BODY";
+        }
+
         const gating =
           phase === "wait" || phase === "announce" || phase === "countdown";
         show(coverage, gating && !isFull);
         coverage.setAttribute("aria-hidden", gating && !isFull ? "false" : "true");
 
         updateCapture(now);
-        drawSkeleton(lms, isFull);
+
+        if (stage === "closeup") drawFace(faceLms, isFull);
+        else drawSkeleton(poseLms, isFull);
       }
       loopRAF = requestAnimationFrame(loop);
     }
@@ -760,6 +963,27 @@ export default function CreateStudio() {
       }
     }
 
+    function drawFace(lms: Landmark[] | undefined, close: boolean) {
+      const w = skCanvas.width,
+        h = skCanvas.height;
+      skCtx.clearRect(0, 0, w, h);
+      if (!lms || !drawingUtils || !faceConn) return;
+      const styleFor = (token: string) =>
+        getComputedStyle(root!).getPropertyValue(token).trim() || "#888";
+      const color = close ? styleFor("--success") : styleFor("--primary");
+      skCtx.save();
+      skCtx.translate(w, 0);
+      skCtx.scale(-1, 1); // mirror to match the flipped feed
+      const opts = { color, lineWidth: 1 };
+      drawingUtils.drawConnectors(lms, faceConn.oval, opts);
+      drawingUtils.drawConnectors(lms, faceConn.leftEye, opts);
+      drawingUtils.drawConnectors(lms, faceConn.rightEye, opts);
+      drawingUtils.drawConnectors(lms, faceConn.leftBrow, opts);
+      drawingUtils.drawConnectors(lms, faceConn.rightBrow, opts);
+      drawingUtils.drawConnectors(lms, faceConn.lips, { color, lineWidth: 1.5 });
+      skCtx.restore();
+    }
+
     /* ---------------- listeners ---------------- */
     const onStart = () => {
       ensureMeterCtx();
@@ -795,9 +1019,21 @@ export default function CreateStudio() {
       generating = true;
       voiceDone.disabled = true;
       voiceDone.textContent = "Generating…";
-      // Pose photos are uploaded to S3-backed media by the server action.
-      // TODO: also send the voice clip (`voiceBlob`) once its field exists.
-      const result = await createFashionVideo([...photos]);
+      // Pose photos, the voice clip, and the chosen song are all persisted on
+      // the node by the server action (voice + poses land in S3).
+      let voice: string | null = null;
+      if (voiceBlob) {
+        try {
+          voice = await blobToDataUrl(voiceBlob);
+        } catch {
+          voice = null;
+        }
+      }
+      const result = await createFashionVideo({
+        images: [...photos],
+        voice,
+        song: selectedSong || null,
+      });
       if (disposed) return;
       if (result.ok) {
         stopMusic();
@@ -837,6 +1073,7 @@ export default function CreateStudio() {
       if (mediaRec?.state === "recording") mediaRec.stop();
       stream?.getTracks().forEach((t) => t.stop());
       landmarker?.close();
+      faceLandmarker?.close();
       audioCtx?.close();
     };
   }, []);

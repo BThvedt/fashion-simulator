@@ -61,30 +61,12 @@ final class FashionVideoUploader {
    */
   public function addImage(NodeInterface $node, string $binary, string $extension = 'jpg', string $prefix = 'pose-', string $alt = 'Fashion video pose image'): MediaInterface {
     $uid = (int) $node->getOwnerId();
-    // Use the node title (a date + timestamp) as the per-video folder name,
-    // reduced to key-safe characters. Fall back to the UUID if the title is
-    // somehow empty.
-    $slug = trim((string) preg_replace('/[^0-9A-Za-z_-]+/', '-', (string) $node->getTitle()), '-');
-    if ($slug === '') {
-      $slug = $node->uuid();
-    }
-    $directory = sprintf('private://users/%d/videos/%s', $uid, $slug);
-    $this->fileSystem->prepareDirectory(
-      $directory,
-      FileSystemInterface::CREATE_DIRECTORY | FileSystemInterface::MODIFY_PERMISSIONS,
-    );
-
-    $filename = uniqid($prefix, TRUE) . '.' . $extension;
-    $file = $this->fileRepository->writeData(
-      $binary,
-      $directory . '/' . $filename,
-      FileExists::Rename,
-    );
+    $file = $this->writeFile($node, $binary, $extension, $prefix);
 
     $media = $this->entityTypeManager->getStorage('media')->create([
       'bundle' => 'image',
       'uid' => $uid,
-      'name' => $filename,
+      'name' => $file->getFilename(),
       'field_media_image' => [
         'target_id' => $file->id(),
         'alt' => $alt,
@@ -94,6 +76,63 @@ final class FashionVideoUploader {
     $media->save();
 
     return $media;
+  }
+
+  /**
+   * Writes a raw file (e.g. the voice recording) into the per-video folder.
+   *
+   * Unlike ::addImage() this stores the bytes as a plain managed file with no
+   * surrounding media entity, suitable for a node `file` field such as
+   * field_voice.
+   *
+   * @param \Drupal\node\NodeInterface $node
+   *   The fashion_video node the file belongs to.
+   * @param string $binary
+   *   The raw (already base64-decoded) file bytes.
+   * @param string $extension
+   *   File extension without the dot, e.g. "webm", "m4a".
+   * @param string $prefix
+   *   Filename prefix, e.g. "voice-".
+   *
+   * @return \Drupal\file\FileInterface
+   *   The saved, permanent file entity.
+   */
+  public function addFile(NodeInterface $node, string $binary, string $extension, string $prefix): FileInterface {
+    return $this->writeFile($node, $binary, $extension, $prefix);
+  }
+
+  /**
+   * Writes bytes to the node's per-video folder and returns the file entity.
+   */
+  private function writeFile(NodeInterface $node, string $binary, string $extension, string $prefix): FileInterface {
+    $directory = $this->videoDirectory($node);
+    $this->fileSystem->prepareDirectory(
+      $directory,
+      FileSystemInterface::CREATE_DIRECTORY | FileSystemInterface::MODIFY_PERMISSIONS,
+    );
+
+    $filename = uniqid($prefix, TRUE) . '.' . $extension;
+    return $this->fileRepository->writeData(
+      $binary,
+      $directory . '/' . $filename,
+      FileExists::Rename,
+    );
+  }
+
+  /**
+   * Returns the per-user / per-video private directory for a node.
+   *
+   * Uses the node title (a date + timestamp) as the per-video folder name,
+   * reduced to key-safe characters, falling back to the UUID if the title is
+   * somehow empty.
+   */
+  private function videoDirectory(NodeInterface $node): string {
+    $uid = (int) $node->getOwnerId();
+    $slug = trim((string) preg_replace('/[^0-9A-Za-z_-]+/', '-', (string) $node->getTitle()), '-');
+    if ($slug === '') {
+      $slug = $node->uuid();
+    }
+    return sprintf('private://users/%d/videos/%s', $uid, $slug);
   }
 
   /**

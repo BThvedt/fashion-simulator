@@ -1,0 +1,19 @@
+uuid: a1000000-0000-4000-8000-000000000027
+langcode: en
+status: true
+dependencies:
+  config:
+    - field.storage.node.field_song
+    - node.type.fashion_video
+id: node.fashion_video.field_song
+field_name: field_song
+entity_type: node
+bundle: fashion_video
+label: 'Song'
+description: 'The background song used during capture (frontend asset filename).'
+required: false
+translatable: false
+default_value: {  }
+default_value_callback: ''
+settings: {  }
+field_type: string

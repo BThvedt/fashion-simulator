@@ -6,6 +6,15 @@ export type CreateFashionVideoResult =
   | { ok: true; id: string }
   | { ok: false; error: string };
 
+export interface CreateFashionVideoInput {
+  /** Captured pose photos as base64 data URLs. */
+  images?: string[];
+  /** The recorded voice line as a base64 audio data URL. */
+  voice?: string | null;
+  /** Filename of the background song used during capture, e.g. "3.mp3". */
+  song?: string | null;
+}
+
 interface JsonApiErrorBody {
   errors?: { detail?: string; title?: string }[];
 }
@@ -30,8 +39,10 @@ async function firstError(res: Response, fallback: string): Promise<string> {
  * its page rather than losing the whole submission.
  */
 export async function createFashionVideo(
-  images: string[] = []
+  input: CreateFashionVideoInput = {}
 ): Promise<CreateFashionVideoResult> {
+  const { images = [], voice = null, song = null } = input;
+
   // Title is a sortable date + timestamp, e.g. "2026-07-20 16:19:32". It also
   // becomes the per-video subfolder name in S3 (sanitized by the backend).
   const now = new Date();
@@ -60,8 +71,8 @@ export async function createFashionVideo(
 
   const { data } = (await res.json()) as { data: { id: string } };
 
-  if (images.length) {
-    await uploadPoseImages(data.id, images);
+  if (images.length || voice || song) {
+    await uploadCaptureAssets(data.id, images, voice, song);
   }
 
   return { ok: true, id: data.id };
@@ -107,24 +118,30 @@ export async function getFashionVideoMedia(
 }
 
 /**
- * Sends captured pose images to the custom Drupal endpoint that stores them as
- * private media on the node. Swallows errors (best-effort) so a storage hiccup
- * doesn't strand the user on the capture screen.
+ * Sends the captured assets (pose images, voice recording, and the background
+ * song filename) to the custom Drupal endpoint that stores them on the node.
+ * Swallows errors (best-effort) so a storage hiccup doesn't strand the user on
+ * the capture screen.
  */
-async function uploadPoseImages(id: string, images: string[]): Promise<void> {
+async function uploadCaptureAssets(
+  id: string,
+  images: string[],
+  voice: string | null,
+  song: string | null
+): Promise<void> {
   try {
     const res = await drupalFetch(`/fashion-video/${id}/pose-images`, {
       method: "POST",
-      body: JSON.stringify({ images }),
+      body: JSON.stringify({ images, voice, song }),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.error(
-        `[fashion_video] pose-image upload failed: ${res.status} ${res.statusText} — ${body.slice(0, 500)}`
+        `[fashion_video] capture-asset upload failed: ${res.status} ${res.statusText} — ${body.slice(0, 500)}`
       );
     }
   } catch (err) {
     // Non-fatal — the node was created successfully.
-    console.error("[fashion_video] pose-image upload request error:", err);
+    console.error("[fashion_video] capture-asset upload request error:", err);
   }
 }
