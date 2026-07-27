@@ -8,7 +8,8 @@ id: node.field_image_prompt
 field_name: field_image_prompt
 entity_type: node
 type: string_long
-settings: {  }
+settings:
+  case_sensitive: false
 module: core
 locked: false
 cardinality: 1

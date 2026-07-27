@@ -73,6 +73,7 @@ const FASHION_VIDEO_MEDIA_FIELDS = [
   'field_pose_images',
   'field_ai_images',
   'field_generated_video',
+  'field_video_clips',
 ];
 
 /**

@@ -21,3 +21,8 @@ services:
     arguments:
       - '@http_client'
       - '@logger.channel.fashion_video'
+  fashion_video.talking_head:
+    class: Drupal\fashion_video\TalkingHeadGenerator
+    arguments:
+      - '@http_client'
+      - '@logger.channel.fashion_video'

@@ -8,7 +8,8 @@ id: node.field_style_analysis
 field_name: field_style_analysis
 entity_type: node
 type: string_long
-settings: {  }
+settings:
+  case_sensitive: false
 module: core
 locked: false
 cardinality: 1

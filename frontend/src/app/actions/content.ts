@@ -96,12 +96,29 @@ export async function ensureFashionImages(id: string): Promise<void> {
 }
 
 /**
- * Reads the current pose + AI image URLs (presigned) for a node. Used to poll
- * while runway images are being generated.
+ * Kicks off talking-head video generation for a node. Fire-and-forget, same as
+ * `ensureFashionImages`: the backend keeps working after the client aborts, so
+ * we use a short timeout and swallow the abort. Poll `getFashionVideoMedia` for
+ * the resulting video.
+ */
+export async function ensureFashionVideo(id: string): Promise<void> {
+  try {
+    await drupalFetch(`/fashion-video/${id}/generate-video`, {
+      method: "POST",
+      signal: AbortSignal.timeout(4000),
+    });
+  } catch {
+    // Expected: request is intentionally abandoned; generation continues server-side.
+  }
+}
+
+/**
+ * Reads the current pose + AI image URLs (presigned) plus the generated video
+ * URL for a node. Used to poll while runway images / the video are generated.
  */
 export async function getFashionVideoMedia(
   id: string
-): Promise<{ poses: string[]; aiImages: string[] } | null> {
+): Promise<{ poses: string[]; aiImages: string[]; video: string | null } | null> {
   try {
     const res = await drupalFetch(`/fashion-video/${id}/media`, {
       cache: "no-store",
@@ -110,8 +127,13 @@ export async function getFashionVideoMedia(
     const data = (await res.json()) as {
       poses?: string[];
       aiImages?: string[];
+      video?: string | null;
     };
-    return { poses: data.poses ?? [], aiImages: data.aiImages ?? [] };
+    return {
+      poses: data.poses ?? [],
+      aiImages: data.aiImages ?? [],
+      video: data.video ?? null,
+    };
   } catch {
     return null;
   }

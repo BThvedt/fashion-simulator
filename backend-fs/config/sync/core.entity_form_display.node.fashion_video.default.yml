@@ -9,6 +9,7 @@ dependencies:
     - field.field.node.fashion_video.field_pose_images
     - field.field.node.fashion_video.field_song
     - field.field.node.fashion_video.field_style_analysis
+    - field.field.node.fashion_video.field_video_clips
     - field.field.node.fashion_video.field_voice
     - node.type.fashion_video
   module:
@@ -18,23 +19,11 @@ targetEntityType: node
 bundle: fashion_video
 mode: default
 content:
-  title:
-    type: string_textfield
-    weight: 0
+  created:
+    type: datetime_timestamp
+    weight: 10
     region: content
-    settings:
-      size: 60
-      placeholder: ''
-    third_party_settings: {  }
-  field_pose_images:
-    type: entity_reference_autocomplete
-    weight: 1
-    region: content
-    settings:
-      match_operator: CONTAINS
-      match_limit: 10
-      size: 60
-      placeholder: ''
+    settings: {  }
     third_party_settings: {  }
   field_ai_images:
     type: entity_reference_autocomplete
@@ -56,20 +45,22 @@ content:
       size: 60
       placeholder: ''
     third_party_settings: {  }
-  field_style_analysis:
-    type: string_textarea
-    weight: 4
-    region: content
-    settings:
-      rows: 5
-      placeholder: ''
-    third_party_settings: {  }
   field_image_prompt:
     type: string_textarea
     weight: 5
     region: content
     settings:
       rows: 5
+      placeholder: ''
+    third_party_settings: {  }
+  field_pose_images:
+    type: entity_reference_autocomplete
+    weight: 1
+    region: content
+    settings:
+      match_operator: CONTAINS
+      match_limit: 10
+      size: 60
       placeholder: ''
     third_party_settings: {  }
   field_song:
@@ -80,6 +71,24 @@ content:
       size: 60
       placeholder: ''
     third_party_settings: {  }
+  field_style_analysis:
+    type: string_textarea
+    weight: 4
+    region: content
+    settings:
+      rows: 5
+      placeholder: ''
+    third_party_settings: {  }
+  field_video_clips:
+    type: entity_reference_autocomplete
+    weight: 8
+    region: content
+    settings:
+      match_operator: CONTAINS
+      match_limit: 10
+      size: 60
+      placeholder: ''
+    third_party_settings: {  }
   field_voice:
     type: file_generic
     weight: 7
@@ -87,11 +96,26 @@ content:
     settings:
       progress_indicator: throbber
     third_party_settings: {  }
-  created:
-    type: datetime_timestamp
-    weight: 10
+  path:
+    type: path
+    weight: 30
     region: content
     settings: {  }
+    third_party_settings: {  }
+  status:
+    type: boolean_checkbox
+    weight: 12
+    region: content
+    settings:
+      display_label: true
+    third_party_settings: {  }
+  title:
+    type: string_textfield
+    weight: 0
+    region: content
+    settings:
+      size: 60
+      placeholder: ''
     third_party_settings: {  }
   uid:
     type: entity_reference_autocomplete
@@ -102,13 +126,6 @@ content:
       match_limit: 10
       size: 60
       placeholder: ''
-    third_party_settings: {  }
-  status:
-    type: boolean_checkbox
-    weight: 12
-    region: content
-    settings:
-      display_label: true
     third_party_settings: {  }
 hidden:
   promote: true

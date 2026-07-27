@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getToken } from "@/lib/auth";
 import { drupalFetch } from "@/lib/drupal";
 import AiRunway from "@/components/AiRunway";
+import VideoFilm from "@/components/VideoFilm";
 
 export const metadata = { title: "Fashion Video" };
 
@@ -18,6 +19,7 @@ interface FashionVideoMedia {
   poses: string[];
   aiImages: string[];
   analysis: StyleAnalysis | null;
+  video: string | null;
 }
 
 export default async function VideoPage({
@@ -45,6 +47,7 @@ export default async function VideoPage({
   const poses = data.poses ?? [];
   const aiImages = data.aiImages ?? [];
   const analysis = data.analysis ?? null;
+  const video = data.video ?? null;
   // Title is stored with seconds (e.g. "2026-07-20 16:19:32"); display to the
   // minute.
   const display = (title ?? "").replace(/:\d{2}$/, "");
@@ -59,29 +62,7 @@ export default async function VideoPage({
           {display}
         </h1>
 
-        {/* Reserved for the eventual generated video. */}
-        <div className="mt-8">
-          <div className="mx-auto flex aspect-[9/16] w-full max-w-xs items-center justify-center rounded-2xl border border-border bg-muted text-center">
-            <div className="px-6">
-              <svg
-                className="mx-auto h-10 w-10 text-muted-foreground"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <rect x="2" y="4" width="20" height="16" rx="2" />
-                <path d="m10 9 5 3-5 3z" />
-              </svg>
-              <p className="mt-3 text-sm text-muted-foreground">
-                Your fashion video is coming soon.
-              </p>
-            </div>
-          </div>
-        </div>
+        <VideoFilm id={id} initialVideo={video} />
 
         {analysis && (
           <section className="mt-10 rounded-2xl border border-border bg-card p-6">

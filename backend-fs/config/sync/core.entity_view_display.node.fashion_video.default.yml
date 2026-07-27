@@ -6,38 +6,52 @@ dependencies:
     - field.field.node.fashion_video.field_ai_images
     - field.field.node.fashion_video.field_generated_video
     - field.field.node.fashion_video.field_pose_images
+    - field.field.node.fashion_video.field_video_clips
     - node.type.fashion_video
 id: node.fashion_video.default
 targetEntityType: node
 bundle: fashion_video
 mode: default
 content:
-  field_pose_images:
-    type: entity_reference_entity_view
-    label: above
-    weight: 1
-    region: content
-    settings:
-      view_mode: default
-      link: false
-    third_party_settings: {  }
   field_ai_images:
     type: entity_reference_entity_view
     label: above
-    weight: 2
-    region: content
     settings:
       view_mode: default
       link: false
     third_party_settings: {  }
+    weight: 2
+    region: content
   field_generated_video:
     type: entity_reference_entity_view
     label: above
-    weight: 3
-    region: content
     settings:
       view_mode: default
       link: false
     third_party_settings: {  }
+    weight: 3
+    region: content
+  field_pose_images:
+    type: entity_reference_entity_view
+    label: above
+    settings:
+      view_mode: default
+      link: false
+    third_party_settings: {  }
+    weight: 1
+    region: content
+  field_video_clips:
+    type: entity_reference_entity_view
+    label: above
+    settings:
+      view_mode: default
+      link: false
+    third_party_settings: {  }
+    weight: 4
+    region: content
 hidden:
+  field_image_prompt: true
+  field_song: true
+  field_style_analysis: true
+  field_voice: true
   links: true

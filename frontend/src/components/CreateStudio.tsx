@@ -66,6 +66,77 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
+/**
+ * Decodes a recorded audio blob and re-encodes it as a mono 16 kHz 16-bit PCM
+ * WAV data URL. `MediaRecorder` yields webm/opus (or mp4/aac), which the
+ * downstream lip-sync service (D-ID) doesn't accept — WAV is a first-class
+ * input there and encodes with no extra dependencies.
+ */
+async function blobToWavDataUrl(blob: Blob): Promise<string> {
+  const arrayBuffer = await blob.arrayBuffer();
+  const decodeCtx = new AudioContext();
+  let decoded: AudioBuffer;
+  try {
+    decoded = await decodeCtx.decodeAudioData(arrayBuffer);
+  } finally {
+    void decodeCtx.close();
+  }
+
+  const targetRate = 16000;
+  const frames = Math.max(1, Math.ceil(decoded.duration * targetRate));
+  const offline = new OfflineAudioContext(1, frames, targetRate);
+  const source = offline.createBufferSource();
+  source.buffer = decoded;
+  source.connect(offline.destination);
+  source.start();
+  const rendered = await offline.startRendering();
+
+  return encodeWavDataUrl(rendered.getChannelData(0), targetRate);
+}
+
+/** Encodes mono float samples as a 16-bit PCM WAV base64 data URL. */
+function encodeWavDataUrl(samples: Float32Array, sampleRate: number): string {
+  const bytesPerSample = 2;
+  const dataSize = samples.length * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  const writeString = (offset: number, text: string) => {
+    for (let i = 0; i < text.length; i++) {
+      view.setUint8(offset + i, text.charCodeAt(i));
+    }
+  };
+
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, "WAVE");
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true); // PCM header size
+  view.setUint16(20, 1, true); // PCM format
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * bytesPerSample, true); // byte rate
+  view.setUint16(32, bytesPerSample, true); // block align
+  view.setUint16(34, 16, true); // bits per sample
+  writeString(36, "data");
+  view.setUint32(40, dataSize, true);
+
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++) {
+    const clamped = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
+    offset += bytesPerSample;
+  }
+
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return `data:audio/wav;base64,${btoa(binary)}`;
+}
+
 export default function CreateStudio() {
   const rootRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -267,12 +338,14 @@ export default function CreateStudio() {
       meterSource?.disconnect();
       meterAnalyser?.disconnect();
       meterGain?.disconnect();
-      meterCtx?.close().catch(() => {});
-      meterCtx = null;
       meterAnalyser = null;
       meterSource = null;
       meterGain = null;
       meterData = null;
+      // meterCtx is intentionally left open and reused (see beep()/onGo). Chrome
+      // caps how many AudioContexts can exist at once; creating a fresh one per
+      // capture run leaks them and eventually makes new AudioContext() throw,
+      // which silently kills the mic-check meter. It's closed on unmount only.
     };
 
     let landmarker: PoseLandmarkerInstance | null = null;
@@ -483,7 +556,6 @@ export default function CreateStudio() {
 
     /* ---------------- capture sequence ---------------- */
     const TOTAL_POSES = 3;
-    let audioCtx: AudioContext | null = null;
     type Phase =
       | "wait"
       | "announce"
@@ -508,16 +580,16 @@ export default function CreateStudio() {
     const stillCtx = still.getContext("2d")!;
 
     function beep(freq: number, dur = 0.12, vol = 0.22) {
-      if (!audioCtx) return;
-      const o = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
+      if (!meterCtx) return;
+      const o = meterCtx.createOscillator();
+      const g = meterCtx.createGain();
       o.frequency.value = freq;
       o.type = "sine";
-      g.gain.setValueAtTime(vol, audioCtx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
-      o.connect(g).connect(audioCtx.destination);
+      g.gain.setValueAtTime(vol, meterCtx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, meterCtx.currentTime + dur);
+      o.connect(g).connect(meterCtx.destination);
       o.start();
-      o.stop(audioCtx.currentTime + dur);
+      o.stop(meterCtx.currentTime + dur);
     }
 
     function setPhase(p: Phase, now: number) {
@@ -1002,11 +1074,11 @@ export default function CreateStudio() {
       show(skylights, true);
       show(readyEl, false);
       monitor.setAttribute("data-live", "true");
-      const AudioCtor =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext })
-          .webkitAudioContext;
-      audioCtx = new AudioCtor();
+      // Reuse the single mic-check AudioContext for the capture beeps rather than
+      // spinning up (and leaking) a second one. onGo fires from the "Go" button
+      // click, so resuming here satisfies the autoplay gesture requirement.
+      ensureMeterCtx();
+      meterCtx?.resume?.();
       running = true;
       stateEl.textContent = "NO BODY";
       loopRAF = requestAnimationFrame(loop);
@@ -1024,9 +1096,15 @@ export default function CreateStudio() {
       let voice: string | null = null;
       if (voiceBlob) {
         try {
-          voice = await blobToDataUrl(voiceBlob);
+          // Prefer WAV (what the lip-sync service accepts); fall back to the
+          // raw recording so a decode hiccup doesn't drop the voice entirely.
+          voice = await blobToWavDataUrl(voiceBlob);
         } catch {
-          voice = null;
+          try {
+            voice = await blobToDataUrl(voiceBlob);
+          } catch {
+            voice = null;
+          }
         }
       }
       const result = await createFashionVideo({
@@ -1074,7 +1152,8 @@ export default function CreateStudio() {
       stream?.getTracks().forEach((t) => t.stop());
       landmarker?.close();
       faceLandmarker?.close();
-      audioCtx?.close();
+      meterCtx?.close().catch(() => {});
+      meterCtx = null;
     };
   }, []);
 

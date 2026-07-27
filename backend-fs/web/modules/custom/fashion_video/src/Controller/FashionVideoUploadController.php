@@ -6,9 +6,11 @@ namespace Drupal\fashion_video\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Lock\LockBackendInterface;
+use Drupal\Core\State\StateInterface;
 use Drupal\fashion_video\AestheticGenerator;
 use Drupal\fashion_video\FashionVideoUploader;
 use Drupal\fashion_video\ImageGenerator;
+use Drupal\fashion_video\TalkingHeadGenerator;
 use Drupal\media\MediaInterface;
 use Drupal\node\NodeInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -51,7 +53,9 @@ final class FashionVideoUploadController extends ControllerBase {
     private readonly FashionVideoUploader $uploader,
     private readonly AestheticGenerator $stylist,
     private readonly ImageGenerator $imageGenerator,
+    private readonly TalkingHeadGenerator $talkingHead,
     private readonly LockBackendInterface $lock,
+    private readonly StateInterface $state,
   ) {}
 
   public static function create(ContainerInterface $container): self {
@@ -59,7 +63,9 @@ final class FashionVideoUploadController extends ControllerBase {
       $container->get('fashion_video.uploader'),
       $container->get('fashion_video.stylist'),
       $container->get('fashion_video.image_generator'),
+      $container->get('fashion_video.talking_head'),
       $container->get('lock'),
+      $container->get('state'),
     );
   }
 
@@ -185,6 +191,17 @@ final class FashionVideoUploadController extends ControllerBase {
       }
     }
 
+    $video = NULL;
+    if (!$node->get('field_generated_video')->isEmpty()) {
+      $media = $node->get('field_generated_video')->entity;
+      if ($media instanceof MediaInterface) {
+        $file = $media->get('field_media_video_file')->entity;
+        if ($file) {
+          $video = $this->uploader->presignedUrl($file);
+        }
+      }
+    }
+
     return new JsonResponse([
       'title' => $node->getTitle(),
       'poses' => $this->presignedImages($node, 'field_pose_images'),
@@ -192,6 +209,7 @@ final class FashionVideoUploadController extends ControllerBase {
       'analysis' => $analysis,
       'song' => $song,
       'voice' => $voice,
+      'video' => $video,
     ]);
   }
 
@@ -299,6 +317,117 @@ final class FashionVideoUploadController extends ControllerBase {
     $media = $this->uploader->addImage($node, $image, 'png', 'ai-', 'AI-generated fashion image');
     $node->get('field_ai_images')->appendItem(['target_id' => $media->id()]);
     return TRUE;
+  }
+
+  /**
+   * POST /fashion-video/{uuid}/generate-video
+   *
+   * Produces a lip-synced "talking head" clip: the generated face closeup is
+   * animated (via D-ID) to speak the recorded voice line, and the resulting
+   * MP4 is stored in field_generated_video.
+   *
+   * D-ID queues jobs (minutes on trial plans), so this is a poll-driven state
+   * machine rather than one blocking request: the caller fires it repeatedly
+   * (cheap no-ops thanks to the lock) and each call advances one short step —
+   *   1. no talk yet   -> create the D-ID talk, remember its id, return "processing"
+   *   2. talk pending  -> report D-ID's status, return "processing"
+   *   3. talk done      -> download + store the MP4, return "done"
+   * The talk id lives in state keyed by node, so a page refresh resumes the
+   * same talk (no extra credit spent).
+   */
+  public function generateVideo(string $uuid): JsonResponse {
+    $node = $this->loadOwnedNode($uuid);
+
+    if (!$node->get('field_generated_video')->isEmpty()) {
+      return new JsonResponse(['status' => 'exists']);
+    }
+
+    // The talking-head face is the generated closeup, which the image step
+    // appends after the (up to three) body runway looks.
+    $aiImages = $node->get('field_ai_images')->referencedEntities();
+    if (count($aiImages) <= self::MAX_AI_IMAGES) {
+      // Either images aren't generated yet, or there's no closeup to speak.
+      return new JsonResponse(['status' => 'images_pending']);
+    }
+    $closeup = $aiImages[self::MAX_AI_IMAGES];
+
+    if (!$node->hasField('field_voice') || $node->get('field_voice')->isEmpty()) {
+      return new JsonResponse(['status' => 'no_voice']);
+    }
+
+    if (!$this->talkingHead->isConfigured()) {
+      return new JsonResponse(['status' => 'not_configured'], 503);
+    }
+
+    // Each step is short, but the lock still guards against a second create
+    // (a wasted credit) or a double download if polls overlap.
+    $lockId = 'fashion_video_video_gen:' . $node->id();
+    if (!$this->lock->acquire($lockId, 120)) {
+      return new JsonResponse(['status' => 'processing']);
+    }
+
+    // Don't abandon a download/save half-way if the client polls away.
+    ignore_user_abort(TRUE);
+
+    $stateKey = 'fashion_video.did_talk.' . $node->id();
+
+    try {
+      $talkId = $this->state->get($stateKey);
+
+      // Step 1: no talk yet — create one.
+      if (!is_string($talkId) || $talkId === '') {
+        $faceFile = $closeup->get('field_media_image')->entity;
+        $voiceFile = $node->get('field_voice')->entity;
+        if (!$faceFile || !$voiceFile) {
+          return new JsonResponse(['status' => 'failed'], 500);
+        }
+        // D-ID fetches these directly, so they must outlast processing.
+        $sourceUrl = $this->uploader->presignedUrl($faceFile, '+2 hours');
+        $audioUrl = $this->uploader->presignedUrl($voiceFile, '+2 hours');
+        if (!$sourceUrl || !$audioUrl) {
+          return new JsonResponse(['status' => 'failed'], 500);
+        }
+
+        $talkId = $this->talkingHead->createTalk($sourceUrl, $audioUrl);
+        if ($talkId === NULL) {
+          return new JsonResponse(['status' => 'failed'], 502);
+        }
+        $this->state->set($stateKey, $talkId);
+        return new JsonResponse(['status' => 'processing']);
+      }
+
+      // Steps 2/3: check the existing talk.
+      $result = $this->talkingHead->fetchStatus($talkId);
+      $status = $result['status'];
+
+      if ($status === 'done' && $result['result_url']) {
+        $mp4 = $this->talkingHead->download($result['result_url']);
+        if ($mp4 === NULL) {
+          return new JsonResponse(['status' => 'processing']);
+        }
+        $media = $this->uploader->addVideo($node, $mp4, 'mp4', 'video-');
+        // Keep the clip as an intermediate (the clips field will hold every
+        // generated segment for later assembly) and, since Phase 1a has no
+        // assembly step yet, also surface it as the final playable video.
+        $node->get('field_video_clips')->appendItem(['target_id' => $media->id()]);
+        $node->set('field_generated_video', ['target_id' => $media->id()]);
+        $node->save();
+        $this->state->delete($stateKey);
+        return new JsonResponse(['status' => 'done']);
+      }
+
+      if ($status === 'error' || $status === 'rejected') {
+        // Let the user retry with a fresh talk.
+        $this->state->delete($stateKey);
+        return new JsonResponse(['status' => 'failed'], 502);
+      }
+
+      // created / started / transient transport error — keep waiting.
+      return new JsonResponse(['status' => 'processing']);
+    }
+    finally {
+      $this->lock->release($lockId);
+    }
   }
 
   /**

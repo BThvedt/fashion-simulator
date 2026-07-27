@@ -1,20 +1,19 @@
-uuid: a1000000-0000-4000-8000-000000000026
+uuid: a1000000-0000-4000-8000-000000000028
 langcode: en
 status: true
 dependencies:
   module:
+    - media
     - node
-id: node.field_song
-field_name: field_song
+id: node.field_video_clips
+field_name: field_video_clips
 entity_type: node
-type: string
+type: entity_reference
 settings:
-  max_length: 255
-  case_sensitive: false
-  is_ascii: false
+  target_type: media
 module: core
 locked: false
-cardinality: 1
+cardinality: -1
 translatable: true
 indexes: {  }
 persist_with_no_fields: false

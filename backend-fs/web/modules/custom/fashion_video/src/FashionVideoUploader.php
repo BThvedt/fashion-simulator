@@ -79,6 +79,38 @@ final class FashionVideoUploader {
   }
 
   /**
+   * Writes one video and wraps it in a video media entity.
+   *
+   * @param \Drupal\node\NodeInterface $node
+   *   The fashion_video node the video belongs to (used for the folder path
+   *   and ownership).
+   * @param string $binary
+   *   The raw video bytes.
+   * @param string $extension
+   *   File extension without the dot, e.g. "mp4".
+   * @param string $prefix
+   *   Filename prefix, e.g. "video-".
+   *
+   * @return \Drupal\media\MediaInterface
+   *   The saved, published video media entity.
+   */
+  public function addVideo(NodeInterface $node, string $binary, string $extension = 'mp4', string $prefix = 'video-'): MediaInterface {
+    $uid = (int) $node->getOwnerId();
+    $file = $this->writeFile($node, $binary, $extension, $prefix);
+
+    $media = $this->entityTypeManager->getStorage('media')->create([
+      'bundle' => 'video',
+      'uid' => $uid,
+      'name' => $file->getFilename(),
+      'field_media_video_file' => ['target_id' => $file->id()],
+    ]);
+    $media->setPublished();
+    $media->save();
+
+    return $media;
+  }
+
+  /**
    * Writes a raw file (e.g. the voice recording) into the per-video folder.
    *
    * Unlike ::addImage() this stores the bytes as a plain managed file with no

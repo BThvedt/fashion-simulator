@@ -9,7 +9,7 @@ id: node.fashion_video.field_song
 field_name: field_song
 entity_type: node
 bundle: fashion_video
-label: 'Song'
+label: Song
 description: 'The background song used during capture (frontend asset filename).'
 required: false
 translatable: false
