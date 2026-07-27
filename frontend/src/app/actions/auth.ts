@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { setTokenCookie, clearTokenCookie } from "@/lib/auth";
+import { setTokens, clearTokenCookie } from "@/lib/auth";
 
 export type LoginState =
   | { error: string }
@@ -10,6 +10,7 @@ export type LoginState =
 
 interface TokenResponse {
   access_token: string;
+  refresh_token?: string;
   token_type: string;
   expires_in: number;
   error?: string;
@@ -64,7 +65,7 @@ export async function login(
     };
   }
 
-  await setTokenCookie(body.access_token);
+  await setTokens(body.access_token, body.refresh_token, body.expires_in);
   redirect("/");
 }
 
