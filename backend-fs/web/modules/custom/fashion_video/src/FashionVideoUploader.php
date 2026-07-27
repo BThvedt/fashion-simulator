@@ -37,7 +37,7 @@ final class FashionVideoUploader {
     private readonly FileRepositoryInterface $fileRepository,
     private readonly FileSystemInterface $fileSystem,
     private readonly ConfigFactoryInterface $configFactory,
-    private readonly S3fsServiceInterface $s3fs,
+    private readonly ?S3fsServiceInterface $s3fs,
     private readonly FileUrlGeneratorInterface $fileUrlGenerator,
   ) {}
 
@@ -159,8 +159,9 @@ final class FashionVideoUploader {
 
     $config = $this->configFactory->get('s3fs.settings')->get();
     $isS3 = str_starts_with($uri, 'private://') || str_starts_with($uri, 'public://');
-    if (!$isS3 || empty($config['bucket'])) {
-      // No S3 (e.g. a non-S3 environment) — fall back to the normal URL.
+    if ($this->s3fs === NULL || !$isS3 || empty($config['bucket'])) {
+      // No S3 (s3fs disabled, or a non-S3 environment) — fall back to the
+      // normal URL.
       return $this->fileUrlGenerator->generateAbsoluteString($uri);
     }
 

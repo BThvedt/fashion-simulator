@@ -6,7 +6,7 @@ services:
       - '@file.repository'
       - '@file_system'
       - '@config.factory'
-      - '@s3fs'
+      - '@?s3fs'
       - '@file_url_generator'
   logger.channel.fashion_video:
     parent: logger.channel_base
