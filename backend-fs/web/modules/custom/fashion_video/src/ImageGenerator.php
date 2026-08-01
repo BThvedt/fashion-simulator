@@ -55,16 +55,28 @@ final class ImageGenerator {
     ));
     $propList = $props ? implode(', ', $props) : 'absurd themed props';
 
+    // Match the reference person's facial hair rather than inventing or removing
+    // it — applied to every look so beards/stubble/clean-shaven stay consistent.
+    $facialHair = ' Match the reference photo\'s FACIAL HAIR: if they have a '
+      . 'beard, moustache, goatee or stubble, give them the same facial-hair '
+      . 'shape, length and color; if they are clean-shaven, keep them '
+      . 'clean-shaven.';
+
     $base = sprintf(
       'Ultra-glossy high-fashion editorial photo, an intentionally absurd and '
       . 'humorous parody of an over-produced Balenciaga runway campaign — deadpan '
       . 'serious yet ridiculous. Keep the SAME person and the SAME pose as the '
       . 'reference image. Dress them in an extravagant, high-maintenance, slightly '
-      . 'silly couture outfit inspired by the "%s" aesthetic%s, while keeping at '
-      . 'least a few recognizable elements of their original outfit.%s',
+      . 'silly couture outfit inspired by the "%s" aesthetic%s, but keep it '
+      . 'clearly grounded in their ORIGINAL outfit: preserve the original '
+      . 'clothing\'s dominant COLORS, PATTERNS/prints, fabrics and overall '
+      . 'silhouette and carry them through the restyle, so the result reads as a '
+      . 'heightened version of what they are already wearing rather than a '
+      . 'brand-new outfit — stay largely faithful and deviate only modestly.%s%s',
       $aesthetic,
       $era !== '' ? sprintf(' (%s)', $era) : '',
       $accessory !== '' ? sprintf(' Accessorize with %s.', $accessory) : '',
+      $facialHair,
     );
 
     // One hairstyle direction per image so the set isn't three giant wigs:
@@ -195,7 +207,9 @@ final class ImageGenerator {
       'Ultra-glossy high-fashion BEAUTY CLOSEUP portrait, an intentionally absurd '
       . 'and humorous parody of an over-produced Balenciaga campaign — deadpan '
       . 'serious yet ridiculous. Keep the SAME person as the reference image and '
-      . 'copy their facial EXPRESSION from the reference. Restyle them into the '
+      . 'copy their facial EXPRESSION from the reference. Match their FACIAL HAIR '
+      . 'exactly — same beard/moustache/goatee/stubble shape, length and color, '
+      . 'or keep them clean-shaven if they have none. Restyle them into the '
       . '"%s" aesthetic, borrowing the same couture styling and dramatic hair '
       . 'energy as the runway looks%s. Tight head-and-shoulders framing; subtly '
       . 'emphasize the cheekbones and jawline with sculpting contour and light so '
