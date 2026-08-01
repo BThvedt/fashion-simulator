@@ -69,7 +69,22 @@ final class ImageGenerator {
 
     // One hairstyle direction per image so the set isn't three giant wigs:
     //   0) close to the reference hair, 1) deliberately small but funny,
-    //   2) the full over-the-top avant-garde look.
+    //   2) one wild look picked at random from a menu of big/weird cuts.
+    $wildStyles = [
+      'an outrageously BIG, elaborate, gravity-defying avant-garde hairstyle',
+      'long dramatic DREADLOCKS sculpted into an avant-garde high-fashion shape',
+      'an enormous, perfectly round AFRO picked out to maximum volume',
+      'a crisp, geometric high-top FLAT TOP with sharp fade lines',
+      'an iconic 1980s "Flock of Seagulls" new-wave swoop — a dramatic '
+      . 'side-swept fringe cascading down over one eye',
+      'a towering, sharply spiked punk MOHAWK',
+      'a completely BALD, gleaming head',
+      'an ironic SKULLET — bald and shiny on top with long flowing hair at the '
+      . 'back and sides',
+      'a proudly absurd MULLET, business in the front and party in the back',
+      'a closely SHAVED head, either fully buzzed or with a bold geometric '
+      . 'pattern shaved into the stubble',
+    ];
     $hair = [
       ' For the hair, stay CLOSE to the hairstyle in the reference photo — the '
       . 'same overall cut, length and color — just lightly restyled and polished '
@@ -77,8 +92,8 @@ final class ImageGenerator {
       ' Give them a deliberately UNDERSTATED, decidedly NOT-big hairstyle — sleek '
       . 'and flat (severely slicked-back, a tiny neat bun, or plastered-down) — '
       . 'played completely straight so it reads as quietly funny.',
-      ' Give them an outrageously BIG, elaborate, gravity-defying avant-garde '
-      . 'hairstyle.',
+      ' Give them ' . $wildStyles[array_rand($wildStyles)] . ', played completely '
+      . 'deadpan and serious.',
     ];
 
     $finish = ' Dramatic runway lighting, cinematic, hyper-detailed, luxury '
@@ -113,11 +128,54 @@ final class ImageGenerator {
       ),
     ];
 
-    return [
+    $prompts = [
       $base . $hair[0] . $scenes[0] . $finish,
       $base . $hair[1] . $scenes[1] . $finish,
       $base . $hair[2] . $scenes[2] . $finish,
     ];
+
+    // Bold, unnatural dyed hair colors for the random "bright color" flourish.
+    $hairColors = [
+      'hot pink',
+      'electric blue',
+      'platinum blond',
+      'bright snow-white',
+      'multicolored rainbow streaks',
+      'a two-tone duotone split of two contrasting bright colors',
+    ];
+
+    // 80% of the time exactly one image gets a bright dyed color; the other 20%
+    // two images do. When two are colored they share the same color 35% of the
+    // time and use two different colors the rest.
+    $colorCount = random_int(1, 100) <= 80 ? 1 : 2;
+
+    // Which image(s) get colored — distinct, random.
+    $targets = [0, 1, 2];
+    shuffle($targets);
+    $targets = array_slice($targets, 0, $colorCount);
+
+    if ($colorCount === 1) {
+      $colors = [$hairColors[array_rand($hairColors)]];
+    }
+    elseif (random_int(1, 100) <= 35) {
+      $same = $hairColors[array_rand($hairColors)];
+      $colors = [$same, $same];
+    }
+    else {
+      $keys = (array) array_rand($hairColors, 2);
+      shuffle($keys);
+      $colors = [$hairColors[$keys[0]], $hairColors[$keys[1]]];
+    }
+
+    foreach ($targets as $slot => $target) {
+      $prompts[$target] .= sprintf(
+        ' Their hair is dyed a bold, unnatural color — %s — which overrides the '
+        . 'reference hair color.',
+        $colors[$slot],
+      );
+    }
+
+    return $prompts;
   }
 
   /**

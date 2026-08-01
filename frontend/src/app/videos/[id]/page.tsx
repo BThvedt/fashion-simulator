@@ -3,6 +3,7 @@ import { getToken } from "@/lib/auth";
 import { drupalFetch } from "@/lib/drupal";
 import AiRunway from "@/components/AiRunway";
 import VideoFilm from "@/components/VideoFilm";
+import RegenerateControls from "@/components/RegenerateControls";
 
 export const metadata = { title: "Fashion Video" };
 
@@ -20,6 +21,7 @@ interface FashionVideoMedia {
   aiImages: string[];
   analysis: StyleAnalysis | null;
   video: string | null;
+  canRegenerate: boolean;
 }
 
 export default async function VideoPage({
@@ -48,6 +50,7 @@ export default async function VideoPage({
   const aiImages = data.aiImages ?? [];
   const analysis = data.analysis ?? null;
   const video = data.video ?? null;
+  const canRegenerate = data.canRegenerate ?? false;
   // Title is stored with seconds (e.g. "2026-07-20 16:19:32"); display to the
   // minute.
   const display = (title ?? "").replace(/:\d{2}$/, "");
@@ -116,6 +119,8 @@ export default async function VideoPage({
         {poses.length > 0 && (
           <AiRunway id={id} poses={poses} initialImages={aiImages} />
         )}
+
+        {canRegenerate && <RegenerateControls id={id} />}
       </main>
     </div>
   );

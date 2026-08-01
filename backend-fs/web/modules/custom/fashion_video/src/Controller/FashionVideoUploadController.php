@@ -11,6 +11,7 @@ use Drupal\fashion_video\AestheticGenerator;
 use Drupal\fashion_video\FashionVideoUploader;
 use Drupal\fashion_video\ImageGenerator;
 use Drupal\fashion_video\TalkingHeadGenerator;
+use Drupal\file\FileInterface;
 use Drupal\media\MediaInterface;
 use Drupal\node\NodeInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -48,6 +49,12 @@ final class FashionVideoUploadController extends ControllerBase {
 
   /** Maximum AI runway images to generate per video. */
   private const MAX_AI_IMAGES = 3;
+
+  /** Source (file) fields used by the image and video media bundles. */
+  private const MEDIA_SOURCE_FIELDS = [
+    'field_media_image',
+    'field_media_video_file',
+  ];
 
   public function __construct(
     private readonly FashionVideoUploader $uploader,
@@ -210,6 +217,7 @@ final class FashionVideoUploadController extends ControllerBase {
       'song' => $song,
       'voice' => $voice,
       'video' => $video,
+      'canRegenerate' => $this->canRegenerate(),
     ]);
   }
 
@@ -427,6 +435,104 @@ final class FashionVideoUploadController extends ControllerBase {
     }
     finally {
       $this->lock->release($lockId);
+    }
+  }
+
+  /**
+   * POST /fashion-video/{uuid}/reset-images
+   *
+   * Debug/admin tool: deletes the generated AI images (and their files) plus the
+   * stored prompt so they can be regenerated from scratch. The next poll from
+   * the video page re-triggers generation via the existing (now-unguarded)
+   * generate-images endpoint.
+   */
+  public function resetImages(string $uuid): JsonResponse {
+    $node = $this->loadOwnedNode($uuid);
+    if (!$this->canRegenerate()) {
+      throw new AccessDeniedHttpException('Regenerate is not permitted for this account.');
+    }
+
+    $this->clearMediaFields($node, ['field_ai_images']);
+    if ($node->hasField('field_image_prompt')) {
+      $node->set('field_image_prompt', NULL);
+    }
+    $node->save();
+
+    return new JsonResponse(['status' => 'reset']);
+  }
+
+  /**
+   * POST /fashion-video/{uuid}/reset-video
+   *
+   * Debug/admin tool: deletes the generated (lip-sync) video and any stored
+   * clips, and clears the remembered D-ID talk id so a fresh talk is created on
+   * the next generation. NOTE: regenerating spends a D-ID credit.
+   */
+  public function resetVideo(string $uuid): JsonResponse {
+    $node = $this->loadOwnedNode($uuid);
+    if (!$this->canRegenerate()) {
+      throw new AccessDeniedHttpException('Regenerate is not permitted for this account.');
+    }
+
+    // Phase 1a points both fields at the same clip; clearMediaFields dedupes by
+    // media id so the shared media is only deleted once.
+    $this->clearMediaFields($node, ['field_generated_video', 'field_video_clips']);
+    $node->save();
+    $this->state->delete('fashion_video.did_talk.' . $node->id());
+
+    return new JsonResponse(['status' => 'reset']);
+  }
+
+  /**
+   * Whether the current user may use the regenerate/debug endpoints.
+   *
+   * Gated to admins (bypass node access): regenerating the video spends a real
+   * D-ID credit, and the endpoints are otherwise reachable by any node owner.
+   */
+  private function canRegenerate(): bool {
+    return $this->currentUser()->hasPermission('bypass node access');
+  }
+
+  /**
+   * Deletes the media entities (and their files) referenced by the given node
+   * fields, then clears the fields. Media ids are de-duplicated so a media
+   * referenced by more than one field is only deleted once.
+   *
+   * @param string[] $fields
+   *   The entity-reference (media) field names to clear.
+   */
+  private function clearMediaFields(NodeInterface $node, array $fields): void {
+    /** @var \Drupal\media\MediaInterface[] $media */
+    $media = [];
+    /** @var \Drupal\file\FileInterface[] $files */
+    $files = [];
+
+    foreach ($fields as $field) {
+      if (!$node->hasField($field)) {
+        continue;
+      }
+      foreach ($node->get($field)->referencedEntities() as $entity) {
+        if (!$entity instanceof MediaInterface) {
+          continue;
+        }
+        $media[$entity->id()] = $entity;
+        foreach (self::MEDIA_SOURCE_FIELDS as $source_field) {
+          if ($entity->hasField($source_field) && !$entity->get($source_field)->isEmpty()) {
+            $file = $entity->get($source_field)->entity;
+            if ($file instanceof FileInterface) {
+              $files[$file->id()] = $file;
+            }
+          }
+        }
+      }
+      $node->set($field, []);
+    }
+
+    if ($media) {
+      $this->entityTypeManager()->getStorage('media')->delete($media);
+    }
+    if ($files) {
+      $this->entityTypeManager()->getStorage('file')->delete($files);
     }
   }
 

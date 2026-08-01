@@ -113,6 +113,38 @@ export async function ensureFashionVideo(id: string): Promise<void> {
 }
 
 /**
+ * Debug/admin tool: deletes the generated AI images for a node so they can be
+ * regenerated. After this resolves, reload the page — the runway component sees
+ * no images and re-triggers generation. Returns whether the reset succeeded.
+ */
+export async function resetFashionImages(id: string): Promise<boolean> {
+  try {
+    const res = await drupalFetch(`/fashion-video/${id}/reset-images`, {
+      method: "POST",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Debug/admin tool: deletes the generated lip-sync video (and clips) and clears
+ * the remembered D-ID talk so a fresh one is produced. Regenerating spends a
+ * D-ID credit. Returns whether the reset succeeded.
+ */
+export async function resetFashionVideo(id: string): Promise<boolean> {
+  try {
+    const res = await drupalFetch(`/fashion-video/${id}/reset-video`, {
+      method: "POST",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Reads the current pose + AI image URLs (presigned) plus the generated video
  * URL for a node. Used to poll while runway images / the video are generated.
  */
