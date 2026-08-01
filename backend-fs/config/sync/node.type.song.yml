@@ -1,0 +1,11 @@
+uuid: a1000000-0000-4000-8000-000000000030
+langcode: en
+status: true
+dependencies: {  }
+name: Song
+type: song
+description: 'A background music track selectable during the capture flow and reused when assembling the final video.'
+help: null
+new_revision: true
+preview_mode: 1
+display_submitted: true

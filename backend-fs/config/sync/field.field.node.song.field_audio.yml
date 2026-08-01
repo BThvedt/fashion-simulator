@@ -1,0 +1,27 @@
+uuid: a1000000-0000-4000-8000-000000000032
+langcode: en
+status: true
+dependencies:
+  config:
+    - field.storage.node.field_audio
+    - node.type.song
+  module:
+    - file
+id: node.song.field_audio
+field_name: field_audio
+entity_type: node
+bundle: song
+label: Audio
+description: 'The song audio file. Stored privately and served to the capture flow via a short-lived presigned URL.'
+required: true
+translatable: false
+default_value: {  }
+default_value_callback: ''
+settings:
+  handler: 'default:file'
+  handler_settings: {  }
+  file_directory: songs
+  file_extensions: 'mp3 m4a ogg wav'
+  max_filesize: ''
+  description_field: false
+field_type: file

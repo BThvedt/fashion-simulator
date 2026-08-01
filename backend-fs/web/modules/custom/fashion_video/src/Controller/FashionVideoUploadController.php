@@ -169,6 +169,46 @@ final class FashionVideoUploadController extends ControllerBase {
   }
 
   /**
+   * GET /fashion-video/songs
+   *
+   * Returns the curated background-music library (published `song` nodes) as
+   * `[{id, title, url}]`, where `url` is a short-lived presigned link the
+   * capture flow can play directly from S3. `id` is the song node UUID, which
+   * the client stores back on the fashion_video node (field_song).
+   */
+  public function songs(): JsonResponse {
+    $storage = $this->entityTypeManager()->getStorage('node');
+    $ids = $storage->getQuery()
+      ->accessCheck(TRUE)
+      ->condition('type', 'song')
+      ->condition('status', 1)
+      ->sort('created', 'ASC')
+      ->execute();
+
+    $songs = [];
+    foreach ($storage->loadMultiple($ids) as $node) {
+      if (!$node->hasField('field_audio') || $node->get('field_audio')->isEmpty()) {
+        continue;
+      }
+      $file = $node->get('field_audio')->entity;
+      if (!$file instanceof FileInterface) {
+        continue;
+      }
+      $url = $this->uploader->presignedUrl($file);
+      if (!$url) {
+        continue;
+      }
+      $songs[] = [
+        'id' => $node->uuid(),
+        'title' => $node->getTitle(),
+        'url' => $url,
+      ];
+    }
+
+    return new JsonResponse($songs);
+  }
+
+  /**
    * GET /fashion-video/{uuid}/media
    *
    * Returns the node title plus short-lived presigned URLs for its pose images,

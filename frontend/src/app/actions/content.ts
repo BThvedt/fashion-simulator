@@ -144,6 +144,30 @@ export async function resetFashionVideo(id: string): Promise<boolean> {
   }
 }
 
+export interface SongOption {
+  /** Song node UUID — stored back on the fashion_video node (field_song). */
+  id: string;
+  title: string;
+  /** Short-lived presigned URL to play the track. */
+  url: string;
+}
+
+/**
+ * Fetches the curated background-music library (published `song` nodes) with
+ * short-lived presigned playback URLs. Used by the capture flow to pick and
+ * play a track and remember which one was used.
+ */
+export async function listSongs(): Promise<SongOption[]> {
+  try {
+    const res = await drupalFetch("/fashion-video/songs", { cache: "no-store" });
+    if (!res.ok) return [];
+    const data = (await res.json()) as SongOption[];
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Reads the current pose + AI image URLs (presigned) plus the generated video
  * URL for a node. Used to poll while runway images / the video are generated.

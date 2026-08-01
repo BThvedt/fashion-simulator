@@ -10,7 +10,7 @@ field_name: field_song
 entity_type: node
 bundle: fashion_video
 label: Song
-description: 'The background song used during capture (frontend asset filename).'
+description: 'The background song chosen during capture, stored as the UUID of the referenced Song node.'
 required: false
 translatable: false
 default_value: {  }

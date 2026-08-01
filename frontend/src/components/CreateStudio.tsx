@@ -3,7 +3,8 @@
 import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createFashionVideo } from "@/app/actions/content";
+import { createFashionVideo, listSongs } from "@/app/actions/content";
+import { polishVoice } from "@/lib/voiceFx";
 import styles from "./CreateStudio.module.css";
 
 /* Minimal typings for the parts of @mediapipe/tasks-vision we use. */
@@ -64,77 +65,6 @@ function blobToDataUrl(blob: Blob): Promise<string> {
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(blob);
   });
-}
-
-/**
- * Decodes a recorded audio blob and re-encodes it as a mono 16 kHz 16-bit PCM
- * WAV data URL. `MediaRecorder` yields webm/opus (or mp4/aac), which the
- * downstream lip-sync service (D-ID) doesn't accept — WAV is a first-class
- * input there and encodes with no extra dependencies.
- */
-async function blobToWavDataUrl(blob: Blob): Promise<string> {
-  const arrayBuffer = await blob.arrayBuffer();
-  const decodeCtx = new AudioContext();
-  let decoded: AudioBuffer;
-  try {
-    decoded = await decodeCtx.decodeAudioData(arrayBuffer);
-  } finally {
-    void decodeCtx.close();
-  }
-
-  const targetRate = 16000;
-  const frames = Math.max(1, Math.ceil(decoded.duration * targetRate));
-  const offline = new OfflineAudioContext(1, frames, targetRate);
-  const source = offline.createBufferSource();
-  source.buffer = decoded;
-  source.connect(offline.destination);
-  source.start();
-  const rendered = await offline.startRendering();
-
-  return encodeWavDataUrl(rendered.getChannelData(0), targetRate);
-}
-
-/** Encodes mono float samples as a 16-bit PCM WAV base64 data URL. */
-function encodeWavDataUrl(samples: Float32Array, sampleRate: number): string {
-  const bytesPerSample = 2;
-  const dataSize = samples.length * bytesPerSample;
-  const buffer = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(buffer);
-
-  const writeString = (offset: number, text: string) => {
-    for (let i = 0; i < text.length; i++) {
-      view.setUint8(offset + i, text.charCodeAt(i));
-    }
-  };
-
-  writeString(0, "RIFF");
-  view.setUint32(4, 36 + dataSize, true);
-  writeString(8, "WAVE");
-  writeString(12, "fmt ");
-  view.setUint32(16, 16, true); // PCM header size
-  view.setUint16(20, 1, true); // PCM format
-  view.setUint16(22, 1, true); // mono
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * bytesPerSample, true); // byte rate
-  view.setUint16(32, bytesPerSample, true); // block align
-  view.setUint16(34, 16, true); // bits per sample
-  writeString(36, "data");
-  view.setUint32(40, dataSize, true);
-
-  let offset = 44;
-  for (let i = 0; i < samples.length; i++) {
-    const clamped = Math.max(-1, Math.min(1, samples[i]));
-    view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
-    offset += bytesPerSample;
-  }
-
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return `data:audio/wav;base64,${btoa(binary)}`;
 }
 
 export default function CreateStudio() {
@@ -214,25 +144,33 @@ export default function CreateStudio() {
 
     // Background music for the capture flow: pick one track at random, loop it
     // with a short gap of silence, and pause it while the mic is recording.
-    const SONGS = [
-      "/recording_songs/1.mp3",
-      "/recording_songs/2.mp3",
-      "/recording_songs/3.mp3",
-      "/recording_songs/4.mp3",
-    ];
+    // The library is a curated set of Song nodes on the backend; fetch it up
+    // front so a track is ready by the time capture starts. Each entry carries a
+    // short-lived presigned URL plus the song node UUID we persist on the node.
+    let songLibrary: { id: string; url: string }[] = [];
+    listSongs()
+      .then((s) => {
+        songLibrary = s;
+      })
+      .catch(() => {
+        songLibrary = [];
+      });
     let bgm: HTMLAudioElement | null = null;
     let bgmTimer = 0;
     let bgmStopped = true;
-    // Which track was picked, saved to the node so the video render can reuse it.
+    // Which track was picked (song node UUID), saved to the node so the video
+    // render can reuse it.
     let selectedSong = "";
     const LOOP_GAP_MS = 1200;
 
     const startMusic = () => {
       bgmStopped = false;
       if (!bgm) {
-        const src = SONGS[Math.floor(Math.random() * SONGS.length)];
-        selectedSong = src.split("/").pop() ?? src;
-        bgm = new Audio(src);
+        if (!songLibrary.length) return; // library not loaded / empty — skip music
+        const pick =
+          songLibrary[Math.floor(Math.random() * songLibrary.length)];
+        selectedSong = pick.id;
+        bgm = new Audio(pick.url);
         bgm.volume = 0.45;
         bgm.addEventListener("ended", () => {
           if (bgmStopped) return;
@@ -1098,7 +1036,7 @@ export default function CreateStudio() {
         try {
           // Prefer WAV (what the lip-sync service accepts); fall back to the
           // raw recording so a decode hiccup doesn't drop the voice entirely.
-          voice = await blobToWavDataUrl(voiceBlob);
+          voice = await polishVoice(voiceBlob);
         } catch {
           try {
             voice = await blobToDataUrl(voiceBlob);
