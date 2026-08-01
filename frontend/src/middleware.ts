@@ -4,6 +4,12 @@ const ACCESS_COOKIE = "access_token";
 const REFRESH_COOKIE = "refresh_token";
 const REFRESH_MAX_AGE = 60 * 60 * 24 * 14; // 14 days, matches the OAuth consumer
 
+interface RefreshTokens {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+}
+
 /**
  * Keeps the session alive across the short (5 min) access-token lifetime.
  *
@@ -24,11 +30,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  let tokens: {
-    access_token?: string;
-    refresh_token?: string;
-    expires_in?: number;
-  } | null = null;
+  let tokens: RefreshTokens | null = null;
   try {
     const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/oauth/token`, {
       method: "POST",
@@ -42,18 +44,21 @@ export async function middleware(request: NextRequest) {
       cache: "no-store",
     });
     if (res.ok) {
-      tokens = (await res.json()) as typeof tokens;
+      tokens = (await res.json()) as RefreshTokens;
     }
   } catch {
     tokens = null;
   }
 
-  // Refresh failed (token expired/revoked): drop the stale cookie so the app
-  // treats the user as cleanly logged out and routes them to /login.
+  // Refresh failed. Usually this is a benign rotation race: when the access
+  // token lapses, several concurrent requests try to refresh with the same
+  // (single-use, rotating) refresh token — only the first wins and the losers
+  // get invalid_grant. Deleting the cookie here would sign the user out on that
+  // race, so instead we leave the cookies untouched: the winning request has
+  // already set fresh tokens, and if the refresh token is genuinely dead the
+  // user simply has no access token and gets routed to /login naturally.
   if (!tokens?.access_token) {
-    const response = NextResponse.next();
-    response.cookies.delete(REFRESH_COOKIE);
-    return response;
+    return NextResponse.next();
   }
 
   // Expose the new access token to this same request (server components and
