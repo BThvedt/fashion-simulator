@@ -37,8 +37,10 @@ services:
       S3FS_REGION: ${S3FS_REGION}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      # OpenAI — used for fashion aesthetic analysis of pose photos.
+      # OpenAI — used for fashion aesthetic analysis + AI runway image generation.
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # D-ID — used for the lip-synced "talking head" video generation.
+      DID_API_KEY: ${DID_API_KEY}
     depends_on:
       - db
 
