@@ -1,0 +1,6 @@
+fashion_video.settings_form:
+  title: 'Fashion Video'
+  description: 'Configure the Fashion Video module (video assembly, etc.).'
+  route_name: fashion_video.settings_form
+  parent: system.admin_config_media
+  weight: 10

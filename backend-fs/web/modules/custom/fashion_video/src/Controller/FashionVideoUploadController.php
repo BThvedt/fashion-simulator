@@ -11,6 +11,7 @@ use Drupal\fashion_video\AestheticGenerator;
 use Drupal\fashion_video\FashionVideoUploader;
 use Drupal\fashion_video\ImageGenerator;
 use Drupal\fashion_video\TalkingHeadGenerator;
+use Drupal\fashion_video\VideoAssembler;
 use Drupal\file\FileInterface;
 use Drupal\media\MediaInterface;
 use Drupal\node\NodeInterface;
@@ -61,6 +62,7 @@ final class FashionVideoUploadController extends ControllerBase {
     private readonly AestheticGenerator $stylist,
     private readonly ImageGenerator $imageGenerator,
     private readonly TalkingHeadGenerator $talkingHead,
+    private readonly VideoAssembler $assembler,
     private readonly LockBackendInterface $lock,
     private readonly StateInterface $state,
   ) {}
@@ -71,6 +73,7 @@ final class FashionVideoUploadController extends ControllerBase {
       $container->get('fashion_video.stylist'),
       $container->get('fashion_video.image_generator'),
       $container->get('fashion_video.talking_head'),
+      $container->get('fashion_video.assembler'),
       $container->get('lock'),
       $container->get('state'),
     );
@@ -370,18 +373,21 @@ final class FashionVideoUploadController extends ControllerBase {
   /**
    * POST /fashion-video/{uuid}/generate-video
    *
-   * Produces a lip-synced "talking head" clip: the generated face closeup is
-   * animated (via D-ID) to speak the recorded voice line, and the resulting
-   * MP4 is stored in field_generated_video.
+   * Produces the final fashion video in two poll-driven phases (the caller
+   * fires this repeatedly and each call advances one short step):
    *
-   * D-ID queues jobs (minutes on trial plans), so this is a poll-driven state
-   * machine rather than one blocking request: the caller fires it repeatedly
-   * (cheap no-ops thanks to the lock) and each call advances one short step —
-   *   1. no talk yet   -> create the D-ID talk, remember its id, return "processing"
-   *   2. talk pending  -> report D-ID's status, return "processing"
-   *   3. talk done      -> download + store the MP4, return "done"
-   * The talk id lives in state keyed by node, so a page refresh resumes the
-   * same talk (no extra credit spent).
+   *   Phase 1 — D-ID talking clip. The generated face closeup is animated to
+   *   speak the recorded voice line. D-ID queues jobs (minutes on trial plans),
+   *   so this is itself a mini state machine: create the talk, poll its status,
+   *   then download the MP4 into field_video_clips (an intermediate). The talk
+   *   id lives in state keyed by node, so a refresh resumes the same talk (no
+   *   extra credit spent).
+   *
+   *   Phase 2 — assembly. Once the talking clip exists, ffmpeg normalizes it to
+   *   the 720x1280 canvas and lays the chosen song underneath (ducked). The
+   *   result is stored in field_generated_video — the field VideoFilm polls, so
+   *   it only appears once the finished video is ready. Concurrent encodes are
+   *   capped by fashion_video.settings:max_encodes via short-lived slot locks.
    */
   public function generateVideo(string $uuid): JsonResponse {
     $node = $this->loadOwnedNode($uuid);
@@ -407,75 +413,242 @@ final class FashionVideoUploadController extends ControllerBase {
       return new JsonResponse(['status' => 'not_configured'], 503);
     }
 
-    // Each step is short, but the lock still guards against a second create
-    // (a wasted credit) or a double download if polls overlap.
+    // The per-node lock guards against a second D-ID create (a wasted credit),
+    // a double download, or overlapping assembly. Held long enough to cover an
+    // ffmpeg run.
     $lockId = 'fashion_video_video_gen:' . $node->id();
-    if (!$this->lock->acquire($lockId, 120)) {
+    if (!$this->lock->acquire($lockId, 200)) {
       return new JsonResponse(['status' => 'processing']);
     }
 
-    // Don't abandon a download/save half-way if the client polls away.
+    // Don't abandon a download/encode/save half-way if the client polls away.
     ignore_user_abort(TRUE);
-
-    $stateKey = 'fashion_video.did_talk.' . $node->id();
+    @set_time_limit(300);
 
     try {
-      $talkId = $this->state->get($stateKey);
+      // Phase 1: get the D-ID talking clip into field_video_clips.
+      $talkClip = $this->firstVideoClip($node);
+      if ($talkClip === NULL) {
+        $status = $this->advanceDidTalk($node, $closeup);
+        return new JsonResponse(['status' => $status]);
+      }
 
-      // Step 1: no talk yet — create one.
-      if (!is_string($talkId) || $talkId === '') {
-        $faceFile = $closeup->get('field_media_image')->entity;
-        $voiceFile = $node->get('field_voice')->entity;
-        if (!$faceFile || !$voiceFile) {
-          return new JsonResponse(['status' => 'failed'], 500);
-        }
-        // D-ID fetches these directly, so they must outlast processing.
-        $sourceUrl = $this->uploader->presignedUrl($faceFile, '+2 hours');
-        $audioUrl = $this->uploader->presignedUrl($voiceFile, '+2 hours');
-        if (!$sourceUrl || !$audioUrl) {
-          return new JsonResponse(['status' => 'failed'], 500);
-        }
-
-        $talkId = $this->talkingHead->createTalk($sourceUrl, $audioUrl);
-        if ($talkId === NULL) {
-          return new JsonResponse(['status' => 'failed'], 502);
-        }
-        $this->state->set($stateKey, $talkId);
+      // Phase 2: assemble the final video (normalize + song bed).
+      if (!$this->assembler->isConfigured()) {
+        return new JsonResponse(['status' => 'not_configured'], 503);
+      }
+      $slot = $this->acquireEncodeSlot();
+      if ($slot === NULL) {
+        // At the concurrency cap — the poller will retry shortly.
         return new JsonResponse(['status' => 'processing']);
       }
-
-      // Steps 2/3: check the existing talk.
-      $result = $this->talkingHead->fetchStatus($talkId);
-      $status = $result['status'];
-
-      if ($status === 'done' && $result['result_url']) {
-        $mp4 = $this->talkingHead->download($result['result_url']);
-        if ($mp4 === NULL) {
-          return new JsonResponse(['status' => 'processing']);
-        }
-        $media = $this->uploader->addVideo($node, $mp4, 'mp4', 'video-');
-        // Keep the clip as an intermediate (the clips field will hold every
-        // generated segment for later assembly) and, since Phase 1a has no
-        // assembly step yet, also surface it as the final playable video.
-        $node->get('field_video_clips')->appendItem(['target_id' => $media->id()]);
-        $node->set('field_generated_video', ['target_id' => $media->id()]);
-        $node->save();
-        $this->state->delete($stateKey);
-        return new JsonResponse(['status' => 'done']);
+      try {
+        $done = $this->assembleFinal($node, $talkClip);
+        return new JsonResponse(['status' => $done ? 'done' : 'processing']);
       }
-
-      if ($status === 'error' || $status === 'rejected') {
-        // Let the user retry with a fresh talk.
-        $this->state->delete($stateKey);
-        return new JsonResponse(['status' => 'failed'], 502);
+      finally {
+        $this->lock->release($slot);
       }
-
-      // created / started / transient transport error — keep waiting.
-      return new JsonResponse(['status' => 'processing']);
     }
     finally {
       $this->lock->release($lockId);
     }
+  }
+
+  /**
+   * Phase 1 step: drive the D-ID talk one increment.
+   *
+   * Creates the talk if none exists, otherwise checks its status and — when
+   * done — downloads the MP4 into field_video_clips (as an intermediate). The
+   * next poll picks up assembly.
+   *
+   * @return string
+   *   A status token: "processing" (keep polling) or "failed".
+   */
+  private function advanceDidTalk(NodeInterface $node, MediaInterface $closeup): string {
+    $stateKey = 'fashion_video.did_talk.' . $node->id();
+    $talkId = $this->state->get($stateKey);
+
+    // No talk yet — create one.
+    if (!is_string($talkId) || $talkId === '') {
+      $faceFile = $closeup->get('field_media_image')->entity;
+      $voiceFile = $node->get('field_voice')->entity;
+      if (!$faceFile || !$voiceFile) {
+        return 'failed';
+      }
+      // D-ID fetches these directly, so they must outlast processing.
+      $sourceUrl = $this->uploader->presignedUrl($faceFile, '+2 hours');
+      $audioUrl = $this->uploader->presignedUrl($voiceFile, '+2 hours');
+      if (!$sourceUrl || !$audioUrl) {
+        return 'failed';
+      }
+      $talkId = $this->talkingHead->createTalk($sourceUrl, $audioUrl);
+      if ($talkId === NULL) {
+        return 'failed';
+      }
+      $this->state->set($stateKey, $talkId);
+      return 'processing';
+    }
+
+    // Check the existing talk.
+    $result = $this->talkingHead->fetchStatus($talkId);
+    $status = $result['status'];
+
+    if ($status === 'done' && $result['result_url']) {
+      $mp4 = $this->talkingHead->download($result['result_url']);
+      if ($mp4 === NULL) {
+        return 'processing';
+      }
+      $media = $this->uploader->addVideo($node, $mp4, 'mp4', 'talk-');
+      // Store as an intermediate clip only; assembly produces the final video.
+      $node->get('field_video_clips')->appendItem(['target_id' => $media->id()]);
+      $node->save();
+      $this->state->delete($stateKey);
+      return 'processing';
+    }
+
+    if ($status === 'error' || $status === 'rejected') {
+      // Let the user retry with a fresh talk.
+      $this->state->delete($stateKey);
+      return 'failed';
+    }
+
+    // created / started / transient transport error — keep waiting.
+    return 'processing';
+  }
+
+  /**
+   * Phase 2: assemble the final video from the talking clip + chosen song.
+   *
+   * @return bool
+   *   TRUE if the final video was produced and stored.
+   */
+  private function assembleFinal(NodeInterface $node, MediaInterface $talkClip): bool {
+    $clipFile = $talkClip->get('field_media_video_file')->entity;
+    if (!$clipFile instanceof FileInterface) {
+      return FALSE;
+    }
+    $clipBytes = @file_get_contents($clipFile->getFileUri());
+    if ($clipBytes === FALSE || $clipBytes === '') {
+      return FALSE;
+    }
+
+    [$songBytes, $songExt] = $this->resolveSong($node);
+    $stills = $this->collectBodyStillBytes($node);
+
+    $finalBytes = $this->assembler->assembleMontage($clipBytes, $stills, $songBytes, $songExt ?? 'mp3');
+    if ($finalBytes === NULL) {
+      return FALSE;
+    }
+
+    $media = $this->uploader->addVideo($node, $finalBytes, 'mp4', 'video-');
+    $node->set('field_generated_video', ['target_id' => $media->id()]);
+    $node->save();
+    return TRUE;
+  }
+
+  /**
+   * Resolves the node's chosen song (field_song holds the song node UUID) into
+   * its raw audio bytes + file extension.
+   *
+   * @return array{0: string|null, 1: string|null}
+   *   [bytes, extension], or [NULL, NULL] when there's no usable song.
+   */
+  private function resolveSong(NodeInterface $node): array {
+    if (!$node->hasField('field_song') || $node->get('field_song')->isEmpty()) {
+      return [NULL, NULL];
+    }
+    $uuid = trim((string) $node->get('field_song')->value);
+    if ($uuid === '') {
+      return [NULL, NULL];
+    }
+    $songs = $this->entityTypeManager()->getStorage('node')->loadByProperties([
+      'uuid' => $uuid,
+      'type' => 'song',
+    ]);
+    $song = reset($songs);
+    if (!$song instanceof NodeInterface || !$song->hasField('field_audio') || $song->get('field_audio')->isEmpty()) {
+      return [NULL, NULL];
+    }
+    $file = $song->get('field_audio')->entity;
+    if (!$file instanceof FileInterface) {
+      return [NULL, NULL];
+    }
+    $bytes = @file_get_contents($file->getFileUri());
+    if ($bytes === FALSE || $bytes === '') {
+      return [NULL, NULL];
+    }
+    $ext = pathinfo((string) $file->getFilename(), PATHINFO_EXTENSION) ?: 'mp3';
+    return [$bytes, $ext];
+  }
+
+  /**
+   * Reads the raw bytes of the body runway stills (the first MAX_AI_IMAGES of
+   * field_ai_images; the trailing closeup is excluded — it's the talking face).
+   *
+   * @return string[]
+   *   Image bytes in order; may be empty.
+   */
+  private function collectBodyStillBytes(NodeInterface $node): array {
+    $stills = [];
+    $aiImages = $node->get('field_ai_images')->referencedEntities();
+    $bodyCount = min(count($aiImages), self::MAX_AI_IMAGES);
+    for ($i = 0; $i < $bodyCount; $i++) {
+      $media = $aiImages[$i];
+      if (!$media instanceof MediaInterface) {
+        continue;
+      }
+      $file = $media->get('field_media_image')->entity;
+      if (!$file instanceof FileInterface) {
+        continue;
+      }
+      $bytes = @file_get_contents($file->getFileUri());
+      if ($bytes !== FALSE && $bytes !== '') {
+        $stills[] = $bytes;
+      }
+    }
+    return $stills;
+  }
+
+  /**
+   * Returns the first video-clip media on the node (the D-ID talking clip in
+   * Phase 1a), or NULL when none is stored yet.
+   */
+  private function firstVideoClip(NodeInterface $node): ?MediaInterface {
+    if (!$node->hasField('field_video_clips')) {
+      return NULL;
+    }
+    foreach ($node->get('field_video_clips')->referencedEntities() as $media) {
+      if ($media instanceof MediaInterface) {
+        return $media;
+      }
+    }
+    return NULL;
+  }
+
+  /**
+   * Tries to claim a global encode slot, capping concurrent ffmpeg runs at
+   * fashion_video.settings:max_encodes.
+   *
+   * Implemented as N named locks rather than a counter so a crashed worker
+   * can't permanently leak a slot: the lock's TTL releases it automatically.
+   *
+   * @return string|null
+   *   The acquired slot lock name (pass to ::lock->release), or NULL if all
+   *   slots are busy.
+   */
+  private function acquireEncodeSlot(): ?string {
+    $max = (int) $this->config('fashion_video.settings')->get('max_encodes');
+    if ($max < 1) {
+      $max = 1;
+    }
+    for ($i = 0; $i < $max; $i++) {
+      $name = 'fashion_video_encode_slot_' . $i;
+      if ($this->lock->acquire($name, 240)) {
+        return $name;
+      }
+    }
+    return NULL;
   }
 
   /**

@@ -10,6 +10,14 @@ fashion_video.pose_images:
     _auth: ['oauth2', 'cookie']
     no_cache: 'TRUE'
 
+fashion_video.settings_form:
+  path: '/admin/config/media/fashion-video'
+  defaults:
+    _form: 'Drupal\fashion_video\Form\SettingsForm'
+    _title: 'Fashion Video'
+  requirements:
+    _permission: 'administer site configuration'
+
 fashion_video.songs:
   path: '/fashion-video/songs'
   defaults:

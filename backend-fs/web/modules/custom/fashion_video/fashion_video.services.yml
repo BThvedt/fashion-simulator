@@ -26,3 +26,8 @@ services:
     arguments:
       - '@http_client'
       - '@logger.channel.fashion_video'
+  fashion_video.assembler:
+    class: Drupal\fashion_video\VideoAssembler
+    arguments:
+      - '@file_system'
+      - '@logger.channel.fashion_video'

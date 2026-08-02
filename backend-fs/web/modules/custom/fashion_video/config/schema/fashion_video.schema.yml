@@ -1,0 +1,7 @@
+fashion_video.settings:
+  type: config_object
+  label: 'Fashion Video settings'
+  mapping:
+    max_encodes:
+      type: integer
+      label: 'Maximum concurrent video encodes'
