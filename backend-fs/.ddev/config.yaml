@@ -195,6 +195,11 @@ corepack_enable: true
 # webimage_extra_packages: [php7.4-tidy, php-bcmath]
 # Extra Debian packages that are needed in the webimage can be added here
 
+# ffmpeg — used by the fashion_video module to assemble the final video
+# (mux the D-ID talking clip with the background song, Ken Burns montage, etc.).
+# Mirrors the prod PHP image (docker/php/Dockerfile).
+webimage_extra_packages: [ffmpeg]
+
 # dbimage_extra_packages: [telnet,netcat]
 # Extra Debian packages that are needed in the dbimage can be added here
 

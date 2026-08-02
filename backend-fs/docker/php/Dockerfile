@@ -1,9 +1,12 @@
 FROM php:8.3-fpm
 
-# System libraries needed to build the Drupal PHP extensions
+# System libraries needed to build the Drupal PHP extensions, plus ffmpeg
+# (used by the fashion_video module to assemble the final video: muxing the
+# D-ID talking clip with the background song, Ken Burns montage, etc.).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git unzip libzip-dev libpng-dev libjpeg-dev libfreetype6-dev \
         libwebp-dev libxml2-dev libonig-dev libicu-dev \
+        ffmpeg \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
     && docker-php-ext-install -j"$(nproc)" \
         gd opcache pdo pdo_mysql zip intl bcmath \
