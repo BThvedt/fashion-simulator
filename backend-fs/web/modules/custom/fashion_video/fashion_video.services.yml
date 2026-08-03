@@ -21,8 +21,25 @@ services:
     arguments:
       - '@http_client'
       - '@logger.channel.fashion_video'
-  fashion_video.talking_head:
+  fashion_video.talking_head.did:
     class: Drupal\fashion_video\TalkingHeadGenerator
+    arguments:
+      - '@http_client'
+      - '@logger.channel.fashion_video'
+  fashion_video.talking_head.heygen:
+    class: Drupal\fashion_video\HeyGenTalkingHeadGenerator
+    arguments:
+      - '@http_client'
+      - '@logger.channel.fashion_video'
+      - '@config.factory'
+  fashion_video.talking_head:
+    class: Drupal\fashion_video\TalkingHeadManager
+    arguments:
+      - '@fashion_video.talking_head.heygen'
+      - '@fashion_video.talking_head.did'
+      - '@config.factory'
+  fashion_video.motion_clip:
+    class: Drupal\fashion_video\MotionClipGenerator
     arguments:
       - '@http_client'
       - '@logger.channel.fashion_video'

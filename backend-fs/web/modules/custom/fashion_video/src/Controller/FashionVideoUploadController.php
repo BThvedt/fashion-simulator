@@ -10,7 +10,8 @@ use Drupal\Core\State\StateInterface;
 use Drupal\fashion_video\AestheticGenerator;
 use Drupal\fashion_video\FashionVideoUploader;
 use Drupal\fashion_video\ImageGenerator;
-use Drupal\fashion_video\TalkingHeadGenerator;
+use Drupal\fashion_video\MotionClipGenerator;
+use Drupal\fashion_video\TalkingHeadInterface;
 use Drupal\fashion_video\VideoAssembler;
 use Drupal\file\FileInterface;
 use Drupal\media\MediaInterface;
@@ -61,8 +62,9 @@ final class FashionVideoUploadController extends ControllerBase {
     private readonly FashionVideoUploader $uploader,
     private readonly AestheticGenerator $stylist,
     private readonly ImageGenerator $imageGenerator,
-    private readonly TalkingHeadGenerator $talkingHead,
+    private readonly TalkingHeadInterface $talkingHead,
     private readonly VideoAssembler $assembler,
+    private readonly MotionClipGenerator $motionClip,
     private readonly LockBackendInterface $lock,
     private readonly StateInterface $state,
   ) {}
@@ -74,6 +76,7 @@ final class FashionVideoUploadController extends ControllerBase {
       $container->get('fashion_video.image_generator'),
       $container->get('fashion_video.talking_head'),
       $container->get('fashion_video.assembler'),
+      $container->get('fashion_video.motion_clip'),
       $container->get('lock'),
       $container->get('state'),
     );
@@ -260,6 +263,7 @@ final class FashionVideoUploadController extends ControllerBase {
       'song' => $song,
       'voice' => $voice,
       'video' => $video,
+      'motionClips' => $this->presignedMotionClips($node),
       'canRegenerate' => $this->canRegenerate(),
     ]);
   }
@@ -534,9 +538,17 @@ final class FashionVideoUploadController extends ControllerBase {
     }
 
     [$songBytes, $songExt] = $this->resolveSong($node);
-    $stills = $this->collectBodyStillBytes($node);
 
-    $finalBytes = $this->assembler->assembleMontage($clipBytes, $stills, $songBytes, $songExt ?? 'mp3');
+    // Ken Burns montage is opt-in (fashion_video.settings:include_ken_burns).
+    // When off, the final video is just the normalized talking clip over the
+    // ducked song bed; the montage code stays available for later.
+    if ($this->config('fashion_video.settings')->get('include_ken_burns')) {
+      $stills = $this->collectBodyStillBytes($node);
+      $finalBytes = $this->assembler->assembleMontage($clipBytes, $stills, $songBytes, $songExt ?? 'mp3');
+    }
+    else {
+      $finalBytes = $this->assembler->assembleTalkingClip($clipBytes, $songBytes, $songExt ?? 'mp3');
+    }
     if ($finalBytes === NULL) {
       return FALSE;
     }
@@ -611,19 +623,64 @@ final class FashionVideoUploadController extends ControllerBase {
   }
 
   /**
-   * Returns the first video-clip media on the node (the D-ID talking clip in
-   * Phase 1a), or NULL when none is stored yet.
+   * Returns the talking-head clip media on the node (Phase 1a), or NULL when
+   * none is stored yet.
+   *
+   * field_video_clips is shared with the experimental fal "motion" clips
+   * (filename prefix "motion-"); those are skipped here so assembly never
+   * mistakes a motion experiment for the lip-sync talk clip.
    */
   private function firstVideoClip(NodeInterface $node): ?MediaInterface {
     if (!$node->hasField('field_video_clips')) {
       return NULL;
     }
     foreach ($node->get('field_video_clips')->referencedEntities() as $media) {
-      if ($media instanceof MediaInterface) {
-        return $media;
+      if (!$media instanceof MediaInterface) {
+        continue;
       }
+      if ($this->isMotionClip($media)) {
+        continue;
+      }
+      return $media;
     }
     return NULL;
+  }
+
+  /**
+   * Whether a video media entity is an experimental fal "motion" clip (as
+   * opposed to the lip-sync talk clip), identified by its "motion-" filename
+   * prefix.
+   */
+  private function isMotionClip(MediaInterface $media): bool {
+    $file = $media->get('field_media_video_file')->entity;
+    return $file instanceof FileInterface
+      && str_starts_with((string) $file->getFilename(), 'motion-');
+  }
+
+  /**
+   * Returns presigned URLs for the experimental fal motion clips on the node.
+   *
+   * @return array<int, string>
+   */
+  private function presignedMotionClips(NodeInterface $node): array {
+    $urls = [];
+    if (!$node->hasField('field_video_clips')) {
+      return $urls;
+    }
+    foreach ($node->get('field_video_clips')->referencedEntities() as $media) {
+      if (!$media instanceof MediaInterface || !$this->isMotionClip($media)) {
+        continue;
+      }
+      $file = $media->get('field_media_video_file')->entity;
+      if (!$file instanceof FileInterface) {
+        continue;
+      }
+      $url = $this->uploader->presignedUrl($file);
+      if ($url) {
+        $urls[] = $url;
+      }
+    }
+    return $urls;
   }
 
   /**
@@ -649,6 +706,115 @@ final class FashionVideoUploadController extends ControllerBase {
       }
     }
     return NULL;
+  }
+
+  /**
+   * POST /fashion-video/{uuid}/generate-motion
+   *
+   * Debug/admin experiment: animates a random generated runway still into a
+   * short "motion clip" via fal.ai (Kling 2.5 Turbo) and stores it on the node
+   * as an intermediate (field_video_clips). Poll-driven like generate-video:
+   * fire repeatedly and each call advances one step (submit, poll, download).
+   * The fal job handles live in state keyed by node, so a refresh resumes the
+   * same job rather than spending again.
+   */
+  public function generateMotion(string $uuid): JsonResponse {
+    $node = $this->loadOwnedNode($uuid);
+    if (!$this->canRegenerate()) {
+      throw new AccessDeniedHttpException('Motion generation is not permitted for this account.');
+    }
+    if (!$this->motionClip->isConfigured()) {
+      return new JsonResponse(['status' => 'not_configured'], 503);
+    }
+
+    $lockId = 'fashion_video_motion_gen:' . $node->id();
+    if (!$this->lock->acquire($lockId, 120)) {
+      return new JsonResponse(['status' => 'processing']);
+    }
+
+    // Keep working even if the client disconnects while polling.
+    ignore_user_abort(TRUE);
+    @set_time_limit(180);
+
+    try {
+      $status = $this->advanceMotionClip($node);
+      return new JsonResponse(['status' => $status]);
+    }
+    finally {
+      $this->lock->release($lockId);
+    }
+  }
+
+  /**
+   * Drives the fal motion-clip job one increment.
+   *
+   * @return string
+   *   A status token: "processing" (keep polling), "done", "failed", or
+   *   "images_pending" (no runway still to animate yet).
+   */
+  private function advanceMotionClip(NodeInterface $node): string {
+    $stateKey = 'fashion_video.fal_motion.' . $node->id();
+    $handles = $this->state->get($stateKey);
+
+    // No job yet — pick a random runway still and submit.
+    if (!is_array($handles) || empty($handles['status_url']) || empty($handles['response_url'])) {
+      $imageUrl = $this->randomRunwayStillUrl($node);
+      if ($imageUrl === NULL) {
+        return 'images_pending';
+      }
+      $submitted = $this->motionClip->submit($imageUrl, 5);
+      if ($submitted === NULL) {
+        return 'failed';
+      }
+      $this->state->set($stateKey, $submitted);
+      return 'processing';
+    }
+
+    $status = $this->motionClip->status($handles['status_url']);
+    if ($status === 'done') {
+      $url = $this->motionClip->resultUrl($handles['response_url']);
+      if ($url === NULL) {
+        $this->state->delete($stateKey);
+        return 'failed';
+      }
+      $mp4 = $this->motionClip->download($url);
+      if ($mp4 === NULL) {
+        // Transient — keep the handles and retry the download next poll.
+        return 'processing';
+      }
+      $media = $this->uploader->addVideo($node, $mp4, 'mp4', 'motion-');
+      $node->get('field_video_clips')->appendItem(['target_id' => $media->id()]);
+      $node->save();
+      $this->state->delete($stateKey);
+      return 'done';
+    }
+    if ($status === 'error') {
+      $this->state->delete($stateKey);
+      return 'failed';
+    }
+    return 'processing';
+  }
+
+  /**
+   * Picks a random generated runway still (a body look, excluding the trailing
+   * face closeup) and returns a long-lived presigned URL fal can fetch.
+   */
+  private function randomRunwayStillUrl(NodeInterface $node): ?string {
+    $aiImages = $node->get('field_ai_images')->referencedEntities();
+    $bodyCount = min(count($aiImages), self::MAX_AI_IMAGES);
+    if ($bodyCount < 1) {
+      return NULL;
+    }
+    $pick = $aiImages[random_int(0, $bodyCount - 1)];
+    if (!$pick instanceof MediaInterface) {
+      return NULL;
+    }
+    $file = $pick->get('field_media_image')->entity;
+    if (!$file instanceof FileInterface) {
+      return NULL;
+    }
+    // fal fetches this directly, so it must outlast processing.
+    return $this->uploader->presignedUrl($file, '+2 hours');
   }
 
   /**

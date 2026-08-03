@@ -21,7 +21,7 @@ use GuzzleHttp\ClientInterface;
  * queues jobs (minutes on trial plans), so the caller drives a poll loop across
  * separate short HTTP requests instead of holding a worker open.
  */
-final class TalkingHeadGenerator {
+final class TalkingHeadGenerator implements TalkingHeadInterface {
 
   private const CREATE_ENDPOINT = 'https://api.d-id.com/talks';
 

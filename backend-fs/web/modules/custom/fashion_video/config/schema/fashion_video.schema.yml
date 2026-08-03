@@ -5,3 +5,12 @@ fashion_video.settings:
     max_encodes:
       type: integer
       label: 'Maximum concurrent video encodes'
+    talking_head_provider:
+      type: string
+      label: 'Talking-head (lip sync) provider'
+    heygen_engine:
+      type: string
+      label: 'HeyGen rendering engine'
+    include_ken_burns:
+      type: boolean
+      label: 'Include Ken Burns still montage in the final video'

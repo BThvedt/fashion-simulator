@@ -41,6 +41,10 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       # D-ID — used for the lip-synced "talking head" video generation.
       DID_API_KEY: ${DID_API_KEY}
+      # HeyGen — alternative lip-sync provider (Avatar IV image-to-video).
+      HEYGEN_API_KEY: ${HEYGEN_API_KEY}
+      # fal.ai — Kling 2.5 Turbo image-to-video "motion clips".
+      FAL_KEY: ${FAL_KEY}
     depends_on:
       - db
 

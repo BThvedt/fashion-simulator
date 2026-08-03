@@ -144,6 +144,26 @@ export async function resetFashionVideo(id: string): Promise<boolean> {
   }
 }
 
+/**
+ * Debug/admin experiment: advances the fal.ai (Kling) motion-clip job for a
+ * node by one step and returns the current status token ("processing", "done",
+ * "failed", "images_pending", "not_configured", or "error"). The endpoint is a
+ * poll-driven state machine, so the caller fires this repeatedly until it
+ * resolves to a terminal status.
+ */
+export async function generateFashionMotion(id: string): Promise<string> {
+  try {
+    const res = await drupalFetch(`/fashion-video/${id}/generate-motion`, {
+      method: "POST",
+    });
+    if (!res.ok) return res.status === 503 ? "not_configured" : "error";
+    const data = (await res.json()) as { status?: string };
+    return data.status ?? "error";
+  } catch {
+    return "error";
+  }
+}
+
 export interface SongOption {
   /** Song node UUID — stored back on the fashion_video node (field_song). */
   id: string;

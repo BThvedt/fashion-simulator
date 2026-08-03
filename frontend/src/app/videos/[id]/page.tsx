@@ -21,6 +21,7 @@ interface FashionVideoMedia {
   aiImages: string[];
   analysis: StyleAnalysis | null;
   video: string | null;
+  motionClips: string[];
   canRegenerate: boolean;
 }
 
@@ -50,6 +51,7 @@ export default async function VideoPage({
   const aiImages = data.aiImages ?? [];
   const analysis = data.analysis ?? null;
   const video = data.video ?? null;
+  const motionClips = data.motionClips ?? [];
   const canRegenerate = data.canRegenerate ?? false;
   // Title is stored with seconds (e.g. "2026-07-20 16:19:32"); display to the
   // minute.
@@ -120,7 +122,9 @@ export default async function VideoPage({
           <AiRunway id={id} poses={poses} initialImages={aiImages} />
         )}
 
-        {canRegenerate && <RegenerateControls id={id} />}
+        {canRegenerate && (
+          <RegenerateControls id={id} motionClips={motionClips} />
+        )}
       </main>
     </div>
   );

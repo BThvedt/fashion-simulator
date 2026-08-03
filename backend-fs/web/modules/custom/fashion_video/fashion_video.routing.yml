@@ -65,6 +65,18 @@ fashion_video.generate_video:
     _auth: ['oauth2', 'cookie']
     no_cache: 'TRUE'
 
+fashion_video.generate_motion:
+  path: '/fashion-video/{uuid}/generate-motion'
+  defaults:
+    _controller: 'Drupal\fashion_video\Controller\FashionVideoUploadController::generateMotion'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    uuid: '[0-9a-fA-F-]+'
+  options:
+    _auth: ['oauth2', 'cookie']
+    no_cache: 'TRUE'
+
 fashion_video.reset_images:
   path: '/fashion-video/{uuid}/reset-images'
   defaults:
