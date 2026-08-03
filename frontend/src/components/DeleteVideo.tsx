@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { deleteFashionVideo } from "@/app/actions/content";
 
 /**
@@ -10,7 +9,6 @@ import { deleteFashionVideo } from "@/app/actions/content";
  * associated S3 assets) and returns the user to their video list.
  */
 export default function DeleteVideo({ id }: { id: string }) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,9 +33,9 @@ export default function DeleteVideo({ id }: { id: string }) {
     setError(null);
     const result = await deleteFashionVideo(id);
     if (result.ok) {
-      // Leave the (now-deleted) page and refresh the list behind it.
-      router.push("/");
-      router.refresh();
+      // Hard-navigate to the landing page so the (now-deleted) node page is
+      // fully left behind and the list loads fresh.
+      window.location.assign("/");
     } else {
       setBusy(false);
       setError(result.error);
@@ -45,15 +43,18 @@ export default function DeleteVideo({ id }: { id: string }) {
   }
 
   return (
-    <div className="mt-12 flex justify-center border-t border-border pt-8">
+    <div className="mt-12 flex flex-col items-center border-t border-border pt-8">
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium text-destructive transition hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
+        className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium text-destructive transition hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
       >
         <TrashIcon />
         Delete video
       </button>
+      <p className="mt-1 text-xs text-muted-foreground">
+        This deletes all your stills on this video as well.
+      </p>
 
       {open && (
         <div

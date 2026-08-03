@@ -134,16 +134,13 @@ export default function AiRunway({
         </p>
       )}
 
-      {/* Body poses (top row) paired with their generated runway looks (below). */}
+      {/* Each pose paired with its generated runway look (stacked). Stacks to a
+          single column on small screens and sits three-up from sm. */}
       {bodyPoses.length > 0 && (
-        <div className="mt-4 grid grid-cols-3 gap-4">
+        <div className="mt-4 grid grid-cols-1 gap-6 sm:grid-cols-3 sm:gap-4">
           {bodyPoses.map((src, i) => (
-            <div key={`pose-${i}`}>
+            <div key={`pair-${i}`} className="flex flex-col gap-4">
               {still(src, `Pose ${i + 1}`, "aspect-video", `pose-${i + 1}.jpg`)}
-            </div>
-          ))}
-          {bodyPoses.map((_, i) => (
-            <div key={`look-${i}`}>
               {generated(
                 bodyImages[i],
                 `Runway look ${i + 1}`,

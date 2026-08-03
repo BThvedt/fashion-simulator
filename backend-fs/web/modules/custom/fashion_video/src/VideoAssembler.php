@@ -41,6 +41,12 @@ final class VideoAssembler {
   /** Crossfade (dissolve) length from the lip-sync clip into the final still. */
   private const XFADE_SEC = 1.0;
   private const FLASH_FADE_SEC = 0.4;
+  /**
+   * Freeze-frame hold on the lip-sync's last frame before the closing still
+   * dissolves in. Delays the fade-to-final-image so it starts after the speech
+   * ends rather than over it.
+   */
+  private const TALK_TAIL_HOLD_SEC = 1.0;
 
   /**
    * SFX layer levels (0..1) and shaping. These mix on top of the balanced
@@ -338,7 +344,9 @@ final class VideoAssembler {
         || !$this->normalizeTalkVideo($motionPath, $segMotion)
         || !$this->makeWhiteClip($segFlash, self::FLASH_SEC)
         || !$this->makePanClip($stillBPath, $segB, self::STILLB_SEC, 'white', self::FLASH_FADE_SEC)
-        || !$this->normalizeTalkVideo($talkPath, $segTalk)
+        // Hold the lip-sync's last frame briefly so the closing still dissolves
+        // in *after* the speech ends, not over it.
+        || !$this->normalizeTalkVideo($talkPath, $segTalk, self::TALK_TAIL_HOLD_SEC)
         // No black fade-in: the closing still is dissolved into via xfade below.
         || !$this->makePanClip($stillCPath, $segC)
       ) {
@@ -349,14 +357,17 @@ final class VideoAssembler {
 
       // The voice must start when the lip-sync segment does.
       $voiceOffset = self::SEGMENT_SEC + $motionDur + self::FLASH_SEC + self::STILLB_SEC;
-      // The closing still crossfades in over the last XFADE_SEC of the lip-sync,
-      // so the montage is XFADE_SEC shorter than a hard cut would be.
-      $crossfadeOffset = $voiceOffset + $talkDur - self::XFADE_SEC;
-      $total = $voiceOffset + $talkDur + self::SEGMENT_SEC - self::XFADE_SEC;
+      // The lip-sync segment now includes a freeze-frame tail hold; the closing
+      // still crossfades in over that held tail, so the dissolve begins after
+      // the speech ends (talkEnd + hold - fade) rather than over the speech.
+      $heldTalkEnd = $voiceOffset + $talkDur + self::TALK_TAIL_HOLD_SEC;
+      $crossfadeOffset = $heldTalkEnd - self::XFADE_SEC;
+      $total = $heldTalkEnd + self::SEGMENT_SEC - self::XFADE_SEC;
       $voiceOffsetMs = (int) round($voiceOffset * 1000);
 
-      // Position each SFX clip on the montage timeline.
-      $sfxCues = $this->buildSfxCues($dir, $sfx, $motionDur, $talkDur, $voiceOffset);
+      // Position each SFX clip on the montage timeline. Applause tracks the
+      // crossfade start so it swells in as the closing still appears.
+      $sfxCues = $this->buildSfxCues($dir, $sfx, $motionDur, $talkDur, $voiceOffset, $crossfadeOffset);
 
       $outPath = $dir . '/final.mp4';
       $command = $this->buildMontageCommand($segments, $talkPath, $songPath, $outPath, $voiceOffsetMs, $total, $sfxCues, $crossfadeOffset);
@@ -392,7 +403,7 @@ final class VideoAssembler {
    *
    * @return array<int, array{path: string, delayMs: int, volume: float, loop: bool, trim: float|null, fadeIn: float, fadeOut: float}>
    */
-  private function buildSfxCues(string $dir, array $sfx, float $motionDur, float $talkDur, float $voiceOffset): array {
+  private function buildSfxCues(string $dir, array $sfx, float $motionDur, float $talkDur, float $voiceOffset, float $crossfadeOffset): array {
     $talkEnd = $voiceOffset + $talkDur;
 
     // [category, delaySec, volume, loop, trimSec|null, fadeIn, fadeOut].
@@ -402,7 +413,7 @@ final class VideoAssembler {
       'crowd' => [self::SEGMENT_SEC, self::SFX_CROWD_VOLUME, TRUE, $motionDur, self::SFX_CROWD_FADE_SEC, self::SFX_CROWD_FADE_SEC],
       'flash' => [self::SEGMENT_SEC + $motionDur, self::SFX_FLASH_VOLUME, FALSE, NULL, 0.0, 0.0],
       'words' => [$talkEnd, self::SFX_WORDS_VOLUME, FALSE, NULL, 0.0, 0.0],
-      'applause' => [$talkEnd - self::XFADE_SEC, self::SFX_APPLAUSE_VOLUME, TRUE, self::SEGMENT_SEC, self::SFX_APPLAUSE_FADE_IN_SEC, self::SFX_APPLAUSE_FADE_OUT_SEC],
+      'applause' => [$crossfadeOffset, self::SFX_APPLAUSE_VOLUME, TRUE, self::SEGMENT_SEC, self::SFX_APPLAUSE_FADE_IN_SEC, self::SFX_APPLAUSE_FADE_OUT_SEC],
     ];
 
     $cues = [];
@@ -487,13 +498,20 @@ final class VideoAssembler {
 
   /**
    * Re-renders the talking clip's video onto the canonical canvas (no audio).
+   *
+   * @param float $tailHoldSec
+   *   Optional freeze-frame hold appended to the end (clones the last frame),
+   *   used so the closing still can dissolve in *after* the speech finishes.
    */
-  private function normalizeTalkVideo(string $clipPath, string $outPath): bool {
+  private function normalizeTalkVideo(string $clipPath, string $outPath, float $tailHoldSec = 0.0): bool {
     $scale = sprintf(
       'scale=%d:%d:force_original_aspect_ratio=decrease,'
       . 'pad=%d:%d:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=%d,format=yuv420p',
       self::WIDTH, self::HEIGHT, self::WIDTH, self::HEIGHT, self::FPS
     );
+    if ($tailHoldSec > 0) {
+      $scale .= sprintf(',tpad=stop_mode=clone:stop_duration=%.3f', $tailHoldSec);
+    }
 
     return $this->runFfmpeg([
       'ffmpeg', '-y', '-i', $clipPath, '-an', '-vf', $scale, '-r', (string) self::FPS,

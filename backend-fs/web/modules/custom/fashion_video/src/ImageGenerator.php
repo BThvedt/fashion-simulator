@@ -208,6 +208,13 @@ final class ImageGenerator {
   public function buildCloseupPrompt(array $analysis): string {
     $aesthetic = trim((string) ($analysis['aesthetic'] ?? 'eclectic'));
     $accessory = trim((string) ($analysis['accessory'] ?? ''));
+    $props = array_values(array_filter(
+      array_map('trim', (array) ($analysis['props'] ?? [])),
+      static fn ($p) => $p !== '',
+    ));
+    $propsHint = $props !== []
+      ? sprintf(' or that appears among the suggested props (%s)', implode(', ', $props))
+      : '';
 
     return sprintf(
       'Ultra-glossy high-fashion BEAUTY CLOSEUP portrait, an intentionally absurd '
@@ -215,10 +222,13 @@ final class ImageGenerator {
       . 'serious yet ridiculous. Keep the SAME person as the reference image and '
       . 'copy their facial EXPRESSION from the reference. Match their FACIAL HAIR '
       . 'exactly — same beard/moustache/goatee/stubble shape, length and color, '
-      . 'or keep them clean-shaven if they have none. For the HAIR, stay CLOSE to '
-      . 'the hairstyle in the reference photo — the same overall cut, length and '
-      . 'color — just lightly restyled and polished for the runway (no big wig or '
-      . 'voluminous styling). Restyle them into the '
+      . 'or keep them clean-shaven if they have none. For the HAIR, keep it clearly '
+      . 'recognizable as the same person — similar cut, length and natural color — '
+      . 'but you may deviate a little more than a plain copy and STYLE IT UP for the '
+      . 'runway with extra polish, shape and editorial flair (still no giant wig or '
+      . 'extreme volume). If the reference photo includes a hat or head covering, '
+      . 'keep it and restyle it to fit the aesthetic; a chic hat or headpiece is also '
+      . 'welcome if it suits the look%s. Restyle them into the '
       . '"%s" aesthetic, borrowing the same couture styling as the runway '
       . 'looks%s. Tight head-and-shoulders framing; subtly '
       . 'emphasize the cheekbones and jawline with sculpting contour and light so '
@@ -226,6 +236,7 @@ final class ImageGenerator {
       . 'lighting, cinematic, hyper-detailed, luxury magazine quality. Do NOT '
       . 'render any text, letters, words, numbers, captions, watermarks, logos, '
       . 'or signage anywhere in the image.',
+      $propsHint,
       $aesthetic,
       $accessory !== '' ? sprintf(', accessorized with %s', $accessory) : '',
     );
