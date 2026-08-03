@@ -1,4 +1,5 @@
 max_encodes: 1
+max_concurrent_videos: 1
 talking_head_provider: heygen
 heygen_engine: avatar_iv
 include_ken_burns: false

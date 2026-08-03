@@ -6,6 +6,8 @@ import VideoFilm from "@/components/VideoFilm";
 import RegenerateControls from "@/components/RegenerateControls";
 import EditableTitle from "@/components/EditableTitle";
 import ShareControls from "@/components/ShareControls";
+import DeleteVideo from "@/components/DeleteVideo";
+import DownloadButton from "@/components/DownloadButton";
 
 export const metadata = { title: "Fashion Video" };
 
@@ -73,7 +75,16 @@ export default async function VideoPage({
             </p>
             <EditableTitle id={id} initialTitle={display} />
           </div>
-          <div className="shrink-0 pt-6">
+          <div className="flex shrink-0 items-center gap-2 pt-6">
+            {video && (
+              <DownloadButton
+                url={video}
+                filename={`${display || "fashion-video"}.mp4`}
+                label="Download"
+                iconSize={15}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-1.5 text-sm font-medium text-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            )}
             <ShareControls id={id} initialShared={shared} initialToken={token} />
           </div>
         </div>
@@ -136,6 +147,8 @@ export default async function VideoPage({
         {canRegenerate && (
           <RegenerateControls id={id} motionClips={motionClips} />
         )}
+
+        <DeleteVideo id={id} />
       </main>
     </div>
   );

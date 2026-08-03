@@ -55,6 +55,15 @@ final class FashionVideoUploadController extends ControllerBase {
   /** State key prefix: which body-still index the motion clip was made from. */
   private const MOTION_SOURCE_STATE = 'fashion_video.motion_source.';
 
+  /** State key holding the video-generation queue: [nid => [enq, seen]]. */
+  private const VIDEO_QUEUE_STATE = 'fashion_video.video_queue';
+
+  /** Lock name serializing queue mutations. */
+  private const VIDEO_QUEUE_LOCK = 'fashion_video_video_queue';
+
+  /** Seconds without a poll before a queue entry is treated as abandoned. */
+  private const VIDEO_QUEUE_TTL = 30;
+
   /** Source (file) fields used by the image and video media bundles. */
   private const MEDIA_SOURCE_FIELDS = [
     'field_media_image',
@@ -579,6 +588,7 @@ final class FashionVideoUploadController extends ControllerBase {
     $node = $this->loadOwnedNode($uuid);
 
     if (!$node->get('field_generated_video')->isEmpty()) {
+      $this->queueRemove((int) $node->id());
       return new JsonResponse(['status' => 'exists']);
     }
 
@@ -597,6 +607,15 @@ final class FashionVideoUploadController extends ControllerBase {
 
     if (!$this->talkingHead->isConfigured()) {
       return new JsonResponse(['status' => 'not_configured'], 503);
+    }
+
+    // Global queue: only a limited number of videos generate at once (see the
+    // max_concurrent_videos setting). Nodes over the cap wait and are told
+    // their position. An admitted node keeps its slot as long as it keeps
+    // polling (the heartbeat refreshes it); stale entries are pruned by TTL.
+    $q = $this->queueHeartbeat((int) $node->id());
+    if (!$q['admitted']) {
+      return new JsonResponse(['status' => 'queued', 'position' => $q['position']]);
     }
 
     // The per-node lock guards against a second D-ID create (a wasted credit),
@@ -638,6 +657,9 @@ final class FashionVideoUploadController extends ControllerBase {
       }
       try {
         $done = $this->assembleFinal($node, $talkClip);
+        if ($done) {
+          $this->queueRemove((int) $node->id());
+        }
         return new JsonResponse(['status' => $done ? 'done' : 'processing']);
       }
       finally {
@@ -646,6 +668,160 @@ final class FashionVideoUploadController extends ControllerBase {
     }
     finally {
       $this->lock->release($lockId);
+    }
+  }
+
+  /**
+   * GET /fashion-video/{uuid}/queue-status
+   *
+   * Lightweight companion to ::generateVideo used by the client to show a
+   * status message: whether the video is generating now or waiting, and if
+   * waiting, its position. Heartbeats the node in the queue so its slot stays
+   * warm while the page is open, and never does any heavy work.
+   */
+  public function queueStatus(string $uuid): JsonResponse {
+    $node = $this->loadOwnedNode($uuid);
+
+    if (!$node->get('field_generated_video')->isEmpty()) {
+      return new JsonResponse(['status' => 'ready']);
+    }
+    // Not yet eligible to generate (images/voice still pending, or the provider
+    // isn't configured) — don't take a queue slot.
+    if (!$this->videoReadyToQueue($node)) {
+      return new JsonResponse(['status' => 'preparing']);
+    }
+
+    $q = $this->queueHeartbeat((int) $node->id());
+    return new JsonResponse([
+      'status' => $q['admitted'] ? 'generating' : 'queued',
+      'position' => $q['position'],
+      'waiting' => $q['waiting'],
+      'active' => $q['active'],
+    ]);
+  }
+
+  /**
+   * Whether a node is eligible to enter the video-generation queue: no video
+   * yet, its AI images (including the closeup) and voice line are ready, and a
+   * talking-head provider is configured.
+   */
+  private function videoReadyToQueue(NodeInterface $node): bool {
+    if (!$node->get('field_generated_video')->isEmpty()) {
+      return FALSE;
+    }
+    if (count($node->get('field_ai_images')->referencedEntities()) <= self::MAX_AI_IMAGES) {
+      return FALSE;
+    }
+    if (!$node->hasField('field_voice') || $node->get('field_voice')->isEmpty()) {
+      return FALSE;
+    }
+    return $this->talkingHead->isConfigured();
+  }
+
+  /**
+   * The configured cap on simultaneous video generations (>= 1).
+   */
+  private function queueMax(): int {
+    $max = (int) $this->config('fashion_video.settings')->get('max_concurrent_videos');
+    return $max >= 1 ? $max : 1;
+  }
+
+  /**
+   * Acquires the queue lock, retrying briefly so a poll never hard-blocks.
+   */
+  private function lockQueue(): bool {
+    for ($i = 0; $i < 12; $i++) {
+      if ($this->lock->acquire(self::VIDEO_QUEUE_LOCK, 10)) {
+        return TRUE;
+      }
+      $this->lock->wait(self::VIDEO_QUEUE_LOCK, 1);
+    }
+    return FALSE;
+  }
+
+  /**
+   * Registers/refreshes a node in the video-generation queue and computes its
+   * standing.
+   *
+   * The queue is a State map of node id => ['enq' => first-seen, 'seen' =>
+   * last-seen]. Entries not refreshed within VIDEO_QUEUE_TTL are pruned, so a
+   * client that navigates away frees its slot. Ordering is by enqueue time
+   * (oldest first): the first max_concurrent_videos nodes are "admitted"
+   * (may generate now); the rest wait.
+   *
+   * @return array{admitted: bool, position: int, active: int, waiting: int, total: int}
+   *   position is 1-based among waiting nodes (0 when admitted).
+   */
+  private function queueHeartbeat(int $nodeId): array {
+    $max = $this->queueMax();
+    $now = time();
+
+    $locked = $this->lockQueue();
+    try {
+      $queue = $this->state->get(self::VIDEO_QUEUE_STATE, []);
+      if (!is_array($queue)) {
+        $queue = [];
+      }
+      // Drop abandoned entries.
+      foreach ($queue as $id => $info) {
+        if (!is_array($info) || ($now - (int) ($info['seen'] ?? 0)) > self::VIDEO_QUEUE_TTL) {
+          unset($queue[$id]);
+        }
+      }
+      // Upsert this node, preserving its original enqueue time for stable order.
+      if (isset($queue[$nodeId]) && is_array($queue[$nodeId])) {
+        $queue[$nodeId]['seen'] = $now;
+      }
+      else {
+        $queue[$nodeId] = ['enq' => $now, 'seen' => $now];
+      }
+      if ($locked) {
+        $this->state->set(self::VIDEO_QUEUE_STATE, $queue);
+      }
+    }
+    finally {
+      if ($locked) {
+        $this->lock->release(self::VIDEO_QUEUE_LOCK);
+      }
+    }
+
+    // Rank by enqueue time (oldest first), tie-broken by node id for stability.
+    uksort($queue, static function ($a, $b) use ($queue) {
+      $ea = (int) ($queue[$a]['enq'] ?? 0);
+      $eb = (int) ($queue[$b]['enq'] ?? 0);
+      return ($ea <=> $eb) ?: ($a <=> $b);
+    });
+    $rank = array_search($nodeId, array_keys($queue), TRUE);
+    $rank = $rank === FALSE ? 0 : (int) $rank;
+
+    $admitted = $rank < $max;
+    $total = count($queue);
+    return [
+      'admitted' => $admitted,
+      'position' => $admitted ? 0 : ($rank - $max + 1),
+      'active' => min($total, $max),
+      'waiting' => max(0, $total - $max),
+      'total' => $total,
+    ];
+  }
+
+  /**
+   * Removes a node from the video-generation queue (on completion). If the lock
+   * is contended we skip it; the TTL prune will drop the stale entry anyway.
+   */
+  private function queueRemove(int $nodeId): void {
+    if (!$this->lockQueue()) {
+      return;
+    }
+    try {
+      $queue = $this->state->get(self::VIDEO_QUEUE_STATE, []);
+      if (is_array($queue) && isset($queue[$nodeId])) {
+        unset($queue[$nodeId]);
+        $this->state->set(self::VIDEO_QUEUE_STATE, $queue);
+      }
+    }
+    finally {
+      $this->lock->release(self::VIDEO_QUEUE_LOCK);
     }
   }
 

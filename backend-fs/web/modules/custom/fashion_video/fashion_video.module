@@ -153,3 +153,52 @@ function fashion_video_node_delete(NodeInterface $node): void {
     ]);
   }
 }
+
+/**
+ * Fashion videos are auto-deleted this many days after creation.
+ */
+const FASHION_VIDEO_RETENTION_DAYS = 30;
+
+/**
+ * Max videos purged per cron run, so a large backlog can't exhaust memory or
+ * stall cron. Anything left over is picked up on subsequent runs.
+ */
+const FASHION_VIDEO_PURGE_BATCH = 50;
+
+/**
+ * Implements hook_cron().
+ *
+ * Enforces the 30-day retention promised in the privacy policy: deletes
+ * fashion_video nodes older than the retention window. Deleting each node fires
+ * hook_node_delete() above, which also removes its S3-backed assets, so no
+ * separate file cleanup is needed here.
+ */
+function fashion_video_cron(): void {
+  $cutoff = \Drupal::time()->getRequestTime() - (FASHION_VIDEO_RETENTION_DAYS * 86400);
+
+  $storage = \Drupal::entityTypeManager()->getStorage('node');
+  $nids = $storage->getQuery()
+    ->accessCheck(FALSE)
+    ->condition('type', 'fashion_video')
+    ->condition('created', $cutoff, '<')
+    ->sort('created', 'ASC')
+    ->range(0, FASHION_VIDEO_PURGE_BATCH)
+    ->execute();
+
+  if (!$nids) {
+    return;
+  }
+
+  try {
+    $storage->delete($storage->loadMultiple($nids));
+    \Drupal::logger('fashion_video')->notice('Auto-deleted @count fashion video(s) older than @days days.', [
+      '@count' => count($nids),
+      '@days' => FASHION_VIDEO_RETENTION_DAYS,
+    ]);
+  }
+  catch (\Throwable $e) {
+    \Drupal::logger('fashion_video')->error('Auto-delete of old fashion videos failed: @msg', [
+      '@msg' => $e->getMessage(),
+    ]);
+  }
+}

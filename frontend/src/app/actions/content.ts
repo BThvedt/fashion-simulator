@@ -114,6 +114,28 @@ export async function updateFashionVideoTitle(
 }
 
 /**
+ * Permanently deletes a `fashion_video` node. The backend's node-delete hook
+ * cleans up all associated S3 assets (poses, AI images, video, voice). Only
+ * succeeds for the owner/admin (enforced by JSON:API access).
+ */
+export async function deleteFashionVideo(
+  id: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await drupalFetch(`/jsonapi/node/fashion_video/${id}`, {
+      method: "DELETE",
+    });
+    // JSON:API returns 204 No Content on success.
+    if (!res.ok && res.status !== 204) {
+      return { ok: false, error: await firstError(res, "Could not delete.") };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Could not delete." };
+  }
+}
+
+/**
  * Enables public sharing for a video. On success returns the freshly minted
  * hard-to-guess token used to build the public `/share/{token}` URL.
  */
@@ -191,6 +213,39 @@ export async function ensureFashionVideo(id: string): Promise<void> {
     });
   } catch {
     // Expected: request is intentionally abandoned; generation continues server-side.
+  }
+}
+
+export interface VideoQueueStatus {
+  /** "generating" (a slot now), "queued", "preparing", or "ready". */
+  status: string;
+  /** 1-based place among those waiting; 0 when generating. */
+  position: number;
+  /** How many videos are waiting behind the active slot(s). */
+  waiting: number;
+}
+
+/**
+ * Reads the node's standing in the global video-generation queue so the UI can
+ * show "Generating now" or "You are number X in the queue". Also heartbeats the
+ * node's queue slot server-side, keeping it warm while the page is open.
+ */
+export async function getVideoQueueStatus(
+  id: string
+): Promise<VideoQueueStatus | null> {
+  try {
+    const res = await drupalFetch(`/fashion-video/${id}/queue-status`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as Partial<VideoQueueStatus>;
+    return {
+      status: data.status ?? "preparing",
+      position: data.position ?? 0,
+      waiting: data.waiting ?? 0,
+    };
+  } catch {
+    return null;
   }
 }
 

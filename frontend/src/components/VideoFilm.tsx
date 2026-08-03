@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import {
   ensureFashionVideo,
   getFashionVideoMedia,
+  getVideoQueueStatus,
+  type VideoQueueStatus,
 } from "@/app/actions/content";
 // Reuse the capture studio's "showtime" overlay styles (sweeping spotlights +
 // premiere searchlights) so playback matches the webcam capture look exactly.
@@ -40,6 +42,7 @@ export default function VideoFilm({
   const [video, setVideo] = useState<string | null>(initialVideo ?? null);
   const [failed, setFailed] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [queue, setQueue] = useState<VideoQueueStatus | null>(null);
   const started = useRef(false);
 
   useEffect(() => {
@@ -53,8 +56,8 @@ export default function VideoFilm({
       if (cancelled) return;
       attempts += 1;
 
-      // Idempotent nudge — starts the render once images exist, otherwise a
-      // cheap no-op thanks to the backend lock/guards.
+      // Idempotent nudge — starts the render once images exist and a queue slot
+      // is free, otherwise a cheap no-op thanks to the backend lock/queue.
       await ensureFashionVideo(id);
       if (cancelled) return;
 
@@ -65,6 +68,12 @@ export default function VideoFilm({
         setVideo(media.video);
         return;
       }
+
+      // Surface the queue standing ("generating now" vs "number X in line").
+      const q = await getVideoQueueStatus(id);
+      if (cancelled) return;
+      if (q) setQueue(q);
+
       if (attempts >= MAX_ATTEMPTS) {
         setFailed(true);
         return;
@@ -141,6 +150,20 @@ export default function VideoFilm({
               We couldn&apos;t produce your video this time. Try refreshing in a
               bit.
             </p>
+          ) : queue?.status === "queued" ? (
+            <>
+              <div
+                className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground"
+                aria-label="Waiting in queue"
+              />
+              <p className="mt-3 text-sm font-medium text-foreground">
+                You&apos;re number {queue.position} in the queue
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                We generate one video at a time — hang tight, yours will start
+                soon.
+              </p>
+            </>
           ) : (
             <>
               <div
@@ -148,7 +171,9 @@ export default function VideoFilm({
                 aria-label="Producing"
               />
               <p className="mt-3 text-sm text-muted-foreground">
-                Producing your film&hellip; this takes a few minutes.
+                {queue?.status === "generating"
+                  ? "Generating your video now… this takes a few minutes."
+                  : "Producing your film… this takes a few minutes."}
               </p>
             </>
           )}

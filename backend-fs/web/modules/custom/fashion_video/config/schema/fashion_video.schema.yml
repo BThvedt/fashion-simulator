@@ -5,6 +5,9 @@ fashion_video.settings:
     max_encodes:
       type: integer
       label: 'Maximum concurrent video encodes'
+    max_concurrent_videos:
+      type: integer
+      label: 'Maximum videos generating at once (queue size)'
     talking_head_provider:
       type: string
       label: 'Talking-head (lip sync) provider'

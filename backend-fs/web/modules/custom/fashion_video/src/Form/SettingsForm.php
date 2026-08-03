@@ -46,6 +46,18 @@ final class SettingsForm extends ConfigFormBase {
       '#required' => TRUE,
     ];
 
+    $maxVideos = (int) $config->get('max_concurrent_videos');
+    $form['max_concurrent_videos'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Maximum videos generating at once (queue size)'),
+      '#description' => $this->t('How many fashion videos may be generating at the same time across the whole site (the full pipeline: lip-sync, motion clip and assembly). Everyone else waits in a queue and is told their position. Set to 1 to generate one video at a time.'),
+      '#default_value' => $maxVideos >= 1 ? $maxVideos : 1,
+      '#min' => 1,
+      '#max' => 16,
+      '#step' => 1,
+      '#required' => TRUE,
+    ];
+
     $form['talking_head_provider'] = [
       '#type' => 'select',
       '#title' => $this->t('Talking-head (lip sync) provider'),
@@ -91,6 +103,7 @@ final class SettingsForm extends ConfigFormBase {
   public function submitForm(array &$form, FormStateInterface $form_state): void {
     $this->config(self::CONFIG_NAME)
       ->set('max_encodes', (int) $form_state->getValue('max_encodes'))
+      ->set('max_concurrent_videos', (int) $form_state->getValue('max_concurrent_videos'))
       ->set('talking_head_provider', (string) $form_state->getValue('talking_head_provider'))
       ->set('heygen_engine', (string) $form_state->getValue('heygen_engine'))
       ->set('include_ken_burns', (bool) $form_state->getValue('include_ken_burns'))

@@ -5,6 +5,11 @@ import {
   ensureFashionImages,
   getFashionVideoMedia,
 } from "@/app/actions/content";
+import DownloadButton from "@/components/DownloadButton";
+
+// Circular download button that fades in over a still on hover/focus.
+const OVERLAY_CLS =
+  "absolute bottom-2 right-2 inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white opacity-0 backdrop-blur transition hover:bg-black/80 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white group-hover:opacity-100";
 
 const POLL_INTERVAL_MS = 5000;
 const MAX_ATTEMPTS = 48; // ~4 minutes
@@ -72,15 +77,33 @@ export default function AiRunway({
   const bodyImages = images.slice(0, BODY_COUNT);
   const faceImage = images[BODY_COUNT];
 
-  // A generated image, or a placeholder (spinner while generation is pending).
-  const generated = (src: string | undefined, alt: string, aspect: string) =>
-    src ? (
-      // eslint-disable-next-line @next/next/no-img-element
+  // A still image with a download button that appears on hover.
+  const still = (
+    src: string,
+    alt: string,
+    aspect: string,
+    filename: string
+  ) => (
+    <div className="group relative">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={src}
         alt={alt}
         className={`w-full rounded-lg border border-border object-cover ${aspect}`}
       />
+      <DownloadButton url={src} filename={filename} className={OVERLAY_CLS} />
+    </div>
+  );
+
+  // A generated image, or a placeholder (spinner while generation is pending).
+  const generated = (
+    src: string | undefined,
+    alt: string,
+    aspect: string,
+    filename: string
+  ) =>
+    src ? (
+      still(src, alt, aspect, filename)
     ) : (
       <div
         className={`flex w-full items-center justify-center rounded-lg border border-border bg-muted ${aspect}`}
@@ -115,17 +138,18 @@ export default function AiRunway({
       {bodyPoses.length > 0 && (
         <div className="mt-4 grid grid-cols-3 gap-4">
           {bodyPoses.map((src, i) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={`pose-${i}`}
-              src={src}
-              alt={`Pose ${i + 1}`}
-              className="aspect-video w-full rounded-lg border border-border object-cover"
-            />
+            <div key={`pose-${i}`}>
+              {still(src, `Pose ${i + 1}`, "aspect-video", `pose-${i + 1}.jpg`)}
+            </div>
           ))}
           {bodyPoses.map((_, i) => (
             <div key={`look-${i}`}>
-              {generated(bodyImages[i], `Runway look ${i + 1}`, "aspect-[2/3]")}
+              {generated(
+                bodyImages[i],
+                `Runway look ${i + 1}`,
+                "aspect-[2/3]",
+                `runway-look-${i + 1}.png`
+              )}
             </div>
           ))}
         </div>
@@ -134,13 +158,13 @@ export default function AiRunway({
       {/* Face closeup beside its generated portrait, 50% each on larger screens. */}
       {closeupPose && (
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={closeupPose}
-            alt="Closeup"
-            className="aspect-[3/4] w-full rounded-lg border border-border object-cover"
-          />
-          {generated(faceImage, "Generated closeup", "aspect-[3/4]")}
+          {still(closeupPose, "Closeup", "aspect-[3/4]", "closeup.jpg")}
+          {generated(
+            faceImage,
+            "Generated closeup",
+            "aspect-[3/4]",
+            "generated-closeup.png"
+          )}
         </div>
       )}
     </section>
