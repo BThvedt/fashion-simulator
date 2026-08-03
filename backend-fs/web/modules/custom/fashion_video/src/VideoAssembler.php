@@ -35,6 +35,12 @@ final class VideoAssembler {
   private const SEGMENT_SEC = 3.0;
   private const ZOOM_MAX = 1.18;
 
+  /** "Show" montage timing: white camera-flash, the still-B hold, fades. */
+  private const FLASH_SEC = 0.2;
+  private const STILLB_SEC = 2.5;
+  private const FADE_SEC = 0.5;
+  private const FLASH_FADE_SEC = 0.4;
+
   /** Hard ceiling on a single ffmpeg run. */
   private const FFMPEG_TIMEOUT = 180;
 
@@ -231,17 +237,138 @@ final class VideoAssembler {
   }
 
   /**
-   * Renders one Ken Burns pan/zoom clip (video only) from a still image.
+   * Assembles the "runway show" montage in a fixed creative order:
+   *
+   *   1. Ken Burns zoom of still A
+   *   2. the motion clip (generated from still B)
+   *   3. a white camera-flash
+   *   4. fade-from-white into still B (brief Ken Burns hold)
+   *   5. the lip-sync talking clip (carries the voice)
+   *   6. fade into a Ken Burns zoom of still C
+   *
+   * The chosen song plays underneath the whole thing, ducked under the voice
+   * during the lip-sync segment and faded out at the end. Falls back to
+   * ::assembleTalkingClip() if the motion clip can't be prepared.
+   *
+   * @param string $talkBytes
+   *   Raw MP4 bytes of the lip-sync clip (carries the voice track).
+   * @param string $motionBytes
+   *   Raw MP4 bytes of the fal motion clip (video only is used).
+   * @param string $stillA
+   *   Bytes of the opening still (Ken Burns).
+   * @param string $stillB
+   *   Bytes of the motion clip's source still (shown after the flash).
+   * @param string $stillC
+   *   Bytes of the closing still (Ken Burns).
+   * @param string|null $songBytes
+   *   Raw song bytes, or NULL to skip the music bed.
+   * @param string $songExt
+   *   Song file extension (temp filename only).
+   *
+   * @return string|null
+   *   The assembled MP4 bytes, or NULL on failure.
    */
-  private function makePanClip(string $stillPath, string $outPath): bool {
-    $frames = (int) round(self::SEGMENT_SEC * self::FPS);
+  public function assembleShow(string $talkBytes, string $motionBytes, string $stillA, string $stillB, string $stillC, ?string $songBytes, string $songExt = 'mp3'): ?string {
+    $dir = rtrim($this->fileSystem->getTempDirectory(), '/') . '/fv-' . uniqid('', TRUE);
+    if (!@mkdir($dir, 0775, TRUE) && !is_dir($dir)) {
+      $this->logger->warning('VideoAssembler: could not create temp dir @dir', ['@dir' => $dir]);
+      return NULL;
+    }
+
+    try {
+      $talkPath = $dir . '/talk.mp4';
+      $motionPath = $dir . '/motion.mp4';
+      $stillAPath = $dir . '/stillA.img';
+      $stillBPath = $dir . '/stillB.img';
+      $stillCPath = $dir . '/stillC.img';
+      if (
+        file_put_contents($talkPath, $talkBytes) === FALSE
+        || file_put_contents($motionPath, $motionBytes) === FALSE
+        || file_put_contents($stillAPath, $stillA) === FALSE
+        || file_put_contents($stillBPath, $stillB) === FALSE
+        || file_put_contents($stillCPath, $stillC) === FALSE
+      ) {
+        return NULL;
+      }
+
+      $songPath = NULL;
+      if ($songBytes !== NULL && $songBytes !== '') {
+        $safeExt = preg_replace('/[^a-z0-9]/i', '', $songExt) ?: 'mp3';
+        $songPath = $dir . '/song.' . $safeExt;
+        if (file_put_contents($songPath, $songBytes) === FALSE) {
+          $songPath = NULL;
+        }
+      }
+
+      $motionDur = $this->probeDuration($motionPath) ?? 5.0;
+      $talkDur = $this->probeDuration($talkPath) ?? 8.0;
+
+      // Build the ordered, canvas-normalized video segments.
+      $segA = $dir . '/seg_a.mp4';
+      $segMotion = $dir . '/seg_motion.mp4';
+      $segFlash = $dir . '/seg_flash.mp4';
+      $segB = $dir . '/seg_b.mp4';
+      $segTalk = $dir . '/seg_talk.mp4';
+      $segC = $dir . '/seg_c.mp4';
+
+      if (
+        !$this->makePanClip($stillAPath, $segA)
+        || !$this->normalizeTalkVideo($motionPath, $segMotion)
+        || !$this->makeWhiteClip($segFlash, self::FLASH_SEC)
+        || !$this->makePanClip($stillBPath, $segB, self::STILLB_SEC, 'white', self::FLASH_FADE_SEC)
+        || !$this->normalizeTalkVideo($talkPath, $segTalk)
+        || !$this->makePanClip($stillCPath, $segC, self::SEGMENT_SEC, 'black', self::FADE_SEC)
+      ) {
+        return NULL;
+      }
+
+      $segments = [$segA, $segMotion, $segFlash, $segB, $segTalk, $segC];
+
+      // The voice must start when the lip-sync segment does.
+      $voiceOffset = self::SEGMENT_SEC + $motionDur + self::FLASH_SEC + self::STILLB_SEC;
+      $total = $voiceOffset + $talkDur + self::SEGMENT_SEC;
+      $voiceOffsetMs = (int) round($voiceOffset * 1000);
+
+      $outPath = $dir . '/final.mp4';
+      $command = $this->buildMontageCommand($segments, $talkPath, $songPath, $outPath, $voiceOffsetMs, $total);
+      if (!$this->runFfmpeg($command, self::FFMPEG_TIMEOUT)) {
+        return NULL;
+      }
+
+      $bytes = @file_get_contents($outPath);
+      return ($bytes === FALSE || $bytes === '') ? NULL : $bytes;
+    }
+    catch (\Throwable $e) {
+      $this->logger->warning('VideoAssembler show error: @msg', ['@msg' => $e->getMessage()]);
+      return NULL;
+    }
+    finally {
+      $this->cleanupDir($dir);
+    }
+  }
+
+  /**
+   * Renders one Ken Burns pan/zoom clip (video only) from a still image.
+   *
+   * @param float $seconds
+   *   Clip length; defaults to the standard Ken Burns segment.
+   * @param string|null $fadeColor
+   *   When set (e.g. "white" or "black"), fade the clip in from this color.
+   * @param float $fadeDur
+   *   Fade-in duration in seconds (ignored when $fadeColor is NULL).
+   */
+  private function makePanClip(string $stillPath, string $outPath, float $seconds = self::SEGMENT_SEC, ?string $fadeColor = NULL, float $fadeDur = 0.0): bool {
+    $frames = (int) round($seconds * self::FPS);
+    $fade = ($fadeColor !== NULL && $fadeDur > 0)
+      ? sprintf(',fade=t=in:st=0:d=%.3f:color=%s', $fadeDur, $fadeColor)
+      : '';
     $filter = sprintf(
       '[0:v]scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,'
       . "zoompan=z='min(zoom+0.0012,%.3f)':d=%d:"
       . "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=%dx%d:fps=%d,"
-      . 'setsar=1,format=yuv420p[v]',
+      . 'setsar=1%s,format=yuv420p[v]',
       self::WIDTH, self::HEIGHT, self::WIDTH, self::HEIGHT,
-      self::ZOOM_MAX, $frames, self::WIDTH, self::HEIGHT, self::FPS
+      self::ZOOM_MAX, $frames, self::WIDTH, self::HEIGHT, self::FPS, $fade
     );
 
     return $this->runFfmpeg([
@@ -251,6 +378,19 @@ final class VideoAssembler {
       '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-an',
       $outPath,
     ], 90);
+  }
+
+  /**
+   * Renders a solid-white clip (video only) — used as the camera-flash beat.
+   */
+  private function makeWhiteClip(string $outPath, float $seconds): bool {
+    return $this->runFfmpeg([
+      'ffmpeg', '-y', '-f', 'lavfi', '-i',
+      sprintf('color=c=white:s=%dx%d:r=%d:d=%.3f', self::WIDTH, self::HEIGHT, self::FPS, $seconds),
+      '-vf', 'setsar=1,format=yuv420p',
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-an',
+      $outPath,
+    ], 30);
   }
 
   /**
