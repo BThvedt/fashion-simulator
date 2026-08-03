@@ -1,0 +1,9 @@
+uuid: a1000000-0000-4000-8000-000000000037
+langcode: en
+status: true
+dependencies: {  }
+name: 'SFX Category'
+vid: sfx_category
+description: 'Categories of sound effect (flash, crowd, words, applause). One clip per category is picked at random and mixed into the final video.'
+weight: 0
+new_revision: false

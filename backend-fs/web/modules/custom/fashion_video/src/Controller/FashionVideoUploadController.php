@@ -547,6 +547,9 @@ final class FashionVideoUploadController extends ControllerBase {
     [$songBytes, $songExt] = $this->resolveSong($node);
     $songExt = $songExt ?? 'mp3';
     $stills = $this->collectBodyStillBytes($node);
+    // One random clip per SFX category (flash/crowd/words/applause), layered in
+    // at fixed cue points by the "show" assembler. Empty on the fallback paths.
+    $sfx = $this->resolveSoundEffects();
 
     $finalBytes = NULL;
 
@@ -571,6 +574,7 @@ final class FashionVideoUploadController extends ControllerBase {
           $stills[$c],
           $songBytes,
           $songExt,
+          $sfx,
         );
       }
     }
@@ -638,6 +642,67 @@ final class FashionVideoUploadController extends ControllerBase {
     }
     $ext = pathinfo((string) $file->getFilename(), PATHINFO_EXTENSION) ?: 'mp3';
     return [$bytes, $ext];
+  }
+
+  /**
+   * Resolves one random sound effect per SFX category (flash, crowd, words,
+   * applause) from the curated `sound_effect` library.
+   *
+   * Matching is by taxonomy term *name* (not id) so it's stable across
+   * environments where config sync doesn't carry the term ids. Categories with
+   * no uploaded/tagged clip resolve to NULL.
+   *
+   * Consumed by VideoAssembler::assembleShow(), which layers each clip in at a
+   * fixed cue point (crowd over the motion clip, flash on the camera-flash beat,
+   * words landing just after the lip-sync, applause over the closing still).
+   *
+   * @return array<string, array{0: string, 1: string}|null>
+   *   Map of category name => [audio bytes, extension], or NULL per category.
+   */
+  private function resolveSoundEffects(): array {
+    $categories = ['flash', 'crowd', 'words', 'applause'];
+    $result = array_fill_keys($categories, NULL);
+
+    $termStorage = $this->entityTypeManager()->getStorage('taxonomy_term');
+    $nodeStorage = $this->entityTypeManager()->getStorage('node');
+
+    foreach ($categories as $category) {
+      $terms = $termStorage->loadByProperties([
+        'vid' => 'sfx_category',
+        'name' => $category,
+      ]);
+      if (!$terms) {
+        continue;
+      }
+      $tids = array_map(static fn ($t) => $t->id(), $terms);
+
+      $ids = array_values($nodeStorage->getQuery()
+        ->accessCheck(FALSE)
+        ->condition('type', 'sound_effect')
+        ->condition('status', 1)
+        ->condition('field_sfx_category', $tids, 'IN')
+        ->execute());
+      if (!$ids) {
+        continue;
+      }
+
+      $node = $nodeStorage->load($ids[random_int(0, count($ids) - 1)]);
+      if (!$node instanceof NodeInterface || !$node->hasField('field_audio') || $node->get('field_audio')->isEmpty()) {
+        continue;
+      }
+      $file = $node->get('field_audio')->entity;
+      if (!$file instanceof FileInterface) {
+        continue;
+      }
+      $bytes = @file_get_contents($file->getFileUri());
+      if ($bytes === FALSE || $bytes === '') {
+        continue;
+      }
+      $ext = pathinfo((string) $file->getFilename(), PATHINFO_EXTENSION) ?: 'mp3';
+      $result[$category] = [$bytes, $ext];
+    }
+
+    return $result;
   }
 
   /**

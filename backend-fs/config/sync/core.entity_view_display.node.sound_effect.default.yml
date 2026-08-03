@@ -1,0 +1,42 @@
+uuid: a1000000-0000-4000-8000-00000000003e
+langcode: en
+status: true
+dependencies:
+  config:
+    - field.field.node.sound_effect.field_attribution
+    - field.field.node.sound_effect.field_audio
+    - field.field.node.sound_effect.field_sfx_category
+    - node.type.sound_effect
+  module:
+    - file
+id: node.sound_effect.default
+targetEntityType: node
+bundle: sound_effect
+mode: default
+content:
+  field_attribution:
+    type: string
+    label: above
+    settings:
+      link_to_entity: false
+    third_party_settings: {  }
+    weight: 3
+    region: content
+  field_audio:
+    type: file_default
+    label: above
+    settings:
+      use_description_as_link_text: true
+    third_party_settings: {  }
+    weight: 1
+    region: content
+  field_sfx_category:
+    type: entity_reference_label
+    label: above
+    settings:
+      link: false
+    third_party_settings: {  }
+    weight: 2
+    region: content
+hidden:
+  links: true

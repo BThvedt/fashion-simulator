@@ -1,0 +1,11 @@
+uuid: a1000000-0000-4000-8000-000000000039
+langcode: en
+status: true
+dependencies: {  }
+name: 'Sound Effect'
+type: sound_effect
+description: 'A sound effect categorized by taxonomy (flash, crowd, words, applause). One per category is mixed into the final video.'
+help: null
+new_revision: true
+preview_mode: 1
+display_submitted: true

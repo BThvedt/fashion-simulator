@@ -100,7 +100,9 @@ final class ImageGenerator {
     $hair = [
       ' For the hair, stay CLOSE to the hairstyle in the reference photo — the '
       . 'same overall cut, length and color — just lightly restyled and polished '
-      . 'for the runway; do NOT add a big wig or voluminous styling.',
+      . 'for the runway; do NOT add a big wig or voluminous styling. This is the '
+      . 'SAME hairstyle used in the matching beauty-closeup portrait, so keep them '
+      . 'consistent.',
       ' Give them a deliberately UNDERSTATED, decidedly NOT-big hairstyle — sleek '
       . 'and flat (severely slicked-back, a tiny neat bun, or plastered-down) — '
       . 'played completely straight so it reads as quietly funny.',
@@ -161,8 +163,10 @@ final class ImageGenerator {
     // time and use two different colors the rest.
     $colorCount = random_int(1, 100) <= 80 ? 1 : 2;
 
-    // Which image(s) get colored — distinct, random.
-    $targets = [0, 1, 2];
+    // Which image(s) get colored — distinct, random. Image 0 is excluded so its
+    // hair keeps the reference cut AND natural color, staying consistent with
+    // the matching beauty-closeup portrait; the dye only lands on 1 and/or 2.
+    $targets = [1, 2];
     shuffle($targets);
     $targets = array_slice($targets, 0, $colorCount);
 
@@ -209,9 +213,12 @@ final class ImageGenerator {
       . 'serious yet ridiculous. Keep the SAME person as the reference image and '
       . 'copy their facial EXPRESSION from the reference. Match their FACIAL HAIR '
       . 'exactly — same beard/moustache/goatee/stubble shape, length and color, '
-      . 'or keep them clean-shaven if they have none. Restyle them into the '
-      . '"%s" aesthetic, borrowing the same couture styling and dramatic hair '
-      . 'energy as the runway looks%s. Tight head-and-shoulders framing; subtly '
+      . 'or keep them clean-shaven if they have none. For the HAIR, stay CLOSE to '
+      . 'the hairstyle in the reference photo — the same overall cut, length and '
+      . 'color — just lightly restyled and polished for the runway (no big wig or '
+      . 'voluminous styling). Restyle them into the '
+      . '"%s" aesthetic, borrowing the same couture styling as the runway '
+      . 'looks%s. Tight head-and-shoulders framing; subtly '
       . 'emphasize the cheekbones and jawline with sculpting contour and light so '
       . 'they look a bit sharper (flattering, not grotesque). Dramatic beauty '
       . 'lighting, cinematic, hyper-detailed, luxury magazine quality. Do NOT '

@@ -28,7 +28,7 @@ final class VideoAssembler {
   private const FPS = 30;
 
   /** Background-song level before ducking (0..1) and end fade length. */
-  private const SONG_VOLUME = 0.35;
+  private const SONG_VOLUME = 0.44;
   private const FADE_OUT_SEC = 1.2;
 
   /** Per-still Ken Burns segment length (seconds) and its zoom ceiling. */
@@ -38,8 +38,26 @@ final class VideoAssembler {
   /** "Show" montage timing: white camera-flash, the still-B hold, fades. */
   private const FLASH_SEC = 0.2;
   private const STILLB_SEC = 2.5;
-  private const FADE_SEC = 0.5;
+  private const FADE_SEC = 1.0;
   private const FLASH_FADE_SEC = 0.4;
+
+  /**
+   * SFX layer levels (0..1) and shaping. These mix on top of the balanced
+   * voice+song bed, so keep them modest to avoid clipping.
+   */
+  private const SFX_CROWD_VOLUME = 0.32;
+  private const SFX_FLASH_VOLUME = 0.7;
+  private const SFX_WORDS_VOLUME = 0.85;
+  private const SFX_APPLAUSE_VOLUME = 0.55;
+  /**
+   * When the "words" sting finishes, relative to the lip-sync's end. Positive =
+   * ends after the lip-sync; negative = ends before it (so the sting overlaps
+   * and plays under the tail of the lip-sync).
+   */
+  private const SFX_WORDS_TAIL_SEC = -0.5;
+  private const SFX_CROWD_FADE_SEC = 0.3;
+  private const SFX_APPLAUSE_FADE_IN_SEC = 0.6;
+  private const SFX_APPLAUSE_FADE_OUT_SEC = 1.0;
 
   /** Hard ceiling on a single ffmpeg run. */
   private const FFMPEG_TIMEOUT = 180;
@@ -264,11 +282,14 @@ final class VideoAssembler {
    *   Raw song bytes, or NULL to skip the music bed.
    * @param string $songExt
    *   Song file extension (temp filename only).
+   * @param array<string, array{0: string, 1: string}|null> $sfx
+   *   Map of SFX category (flash/crowd/words/applause) => [bytes, ext], or NULL
+   *   per category. Each present clip is layered in at its fixed cue point.
    *
    * @return string|null
    *   The assembled MP4 bytes, or NULL on failure.
    */
-  public function assembleShow(string $talkBytes, string $motionBytes, string $stillA, string $stillB, string $stillC, ?string $songBytes, string $songExt = 'mp3'): ?string {
+  public function assembleShow(string $talkBytes, string $motionBytes, string $stillA, string $stillB, string $stillC, ?string $songBytes, string $songExt = 'mp3', array $sfx = []): ?string {
     $dir = rtrim($this->fileSystem->getTempDirectory(), '/') . '/fv-' . uniqid('', TRUE);
     if (!@mkdir($dir, 0775, TRUE) && !is_dir($dir)) {
       $this->logger->warning('VideoAssembler: could not create temp dir @dir', ['@dir' => $dir]);
@@ -329,8 +350,11 @@ final class VideoAssembler {
       $total = $voiceOffset + $talkDur + self::SEGMENT_SEC;
       $voiceOffsetMs = (int) round($voiceOffset * 1000);
 
+      // Position each SFX clip on the montage timeline.
+      $sfxCues = $this->buildSfxCues($dir, $sfx, $motionDur, $talkDur, $voiceOffset);
+
       $outPath = $dir . '/final.mp4';
-      $command = $this->buildMontageCommand($segments, $talkPath, $songPath, $outPath, $voiceOffsetMs, $total);
+      $command = $this->buildMontageCommand($segments, $talkPath, $songPath, $outPath, $voiceOffsetMs, $total, $sfxCues);
       if (!$this->runFfmpeg($command, self::FFMPEG_TIMEOUT)) {
         return NULL;
       }
@@ -345,6 +369,69 @@ final class VideoAssembler {
     finally {
       $this->cleanupDir($dir);
     }
+  }
+
+  /**
+   * Turns the resolved SFX map into positioned cue descriptors for the mixer.
+   *
+   * Cue points (t=0 is the start of the whole video):
+   *  - crowd:    over the motion clip           [SEGMENT_SEC .. +motionDur]
+   *  - flash:    on the white camera-flash beat  (SEGMENT_SEC + motionDur)
+   *  - words:    ends SFX_WORDS_TAIL_SEC after the lip-sync ends
+   *  - applause: over the closing still, fading in then out
+   *
+   * Each SFX blob is written to a temp file in $dir. Categories with no clip are
+   * skipped. Returns a list of cue arrays consumed by ::buildMontageCommand().
+   *
+   * @param array<string, array{0: string, 1: string}|null> $sfx
+   *
+   * @return array<int, array{path: string, delayMs: int, volume: float, loop: bool, trim: float|null, fadeIn: float, fadeOut: float}>
+   */
+  private function buildSfxCues(string $dir, array $sfx, float $motionDur, float $talkDur, float $voiceOffset): array {
+    $talkEnd = $voiceOffset + $talkDur;
+
+    // [category, delaySec, volume, loop, trimSec|null, fadeIn, fadeOut].
+    // `words` gets a placeholder delay; it depends on the clip's own length and
+    // is finalized below once probed.
+    $specs = [
+      'crowd' => [self::SEGMENT_SEC, self::SFX_CROWD_VOLUME, TRUE, $motionDur, self::SFX_CROWD_FADE_SEC, self::SFX_CROWD_FADE_SEC],
+      'flash' => [self::SEGMENT_SEC + $motionDur, self::SFX_FLASH_VOLUME, FALSE, NULL, 0.0, 0.0],
+      'words' => [$talkEnd, self::SFX_WORDS_VOLUME, FALSE, NULL, 0.0, 0.0],
+      'applause' => [$talkEnd, self::SFX_APPLAUSE_VOLUME, TRUE, self::SEGMENT_SEC, self::SFX_APPLAUSE_FADE_IN_SEC, self::SFX_APPLAUSE_FADE_OUT_SEC],
+    ];
+
+    $cues = [];
+    foreach ($specs as $category => [$delaySec, $volume, $loop, $trim, $fadeIn, $fadeOut]) {
+      $entry = $sfx[$category] ?? NULL;
+      if (!is_array($entry) || !isset($entry[0]) || $entry[0] === '') {
+        continue;
+      }
+      [$bytes, $ext] = $entry;
+      $safeExt = preg_replace('/[^a-z0-9]/i', '', (string) $ext) ?: 'mp3';
+      $path = $dir . '/sfx_' . $category . '.' . $safeExt;
+      if (file_put_contents($path, $bytes) === FALSE) {
+        continue;
+      }
+
+      // "words" must *end* SFX_WORDS_TAIL_SEC after the lip-sync, so back its
+      // start off by its own duration.
+      if ($category === 'words') {
+        $wordsDur = $this->probeDuration($path) ?? 1.5;
+        $delaySec = max(0.0, $talkEnd + self::SFX_WORDS_TAIL_SEC - $wordsDur);
+      }
+
+      $cues[] = [
+        'path' => $path,
+        'delayMs' => (int) round($delaySec * 1000),
+        'volume' => (float) $volume,
+        'loop' => (bool) $loop,
+        'trim' => $trim,
+        'fadeIn' => (float) $fadeIn,
+        'fadeOut' => (float) $fadeOut,
+      ];
+    }
+
+    return $cues;
   }
 
   /**
@@ -419,7 +506,7 @@ final class VideoAssembler {
    *
    * @return string[]
    */
-  private function buildMontageCommand(array $segments, string $clipPath, ?string $songPath, string $outPath, int $introMs, float $total): array {
+  private function buildMontageCommand(array $segments, string $clipPath, ?string $songPath, string $outPath, int $introMs, float $total, array $sfxCues = []): array {
     $inputs = [];
     foreach ($segments as $seg) {
       $inputs[] = '-i';
@@ -429,11 +516,28 @@ final class VideoAssembler {
     $voiceIdx = count($segments);
     $inputs[] = '-i';
     $inputs[] = $clipPath;
+    $songIdx = NULL;
     if ($songPath !== NULL) {
+      $songIdx = $voiceIdx + 1;
       $inputs[] = '-stream_loop';
       $inputs[] = '-1';
       $inputs[] = '-i';
       $inputs[] = $songPath;
+    }
+
+    // SFX inputs come after the voice (+ optional song). Looping clips (crowd,
+    // applause) get -stream_loop so they always fill their window.
+    $sfxInputs = [];
+    $nextIdx = $voiceIdx + 1 + ($songPath !== NULL ? 1 : 0);
+    foreach ($sfxCues as $cue) {
+      if (!empty($cue['loop'])) {
+        $inputs[] = '-stream_loop';
+        $inputs[] = '-1';
+      }
+      $inputs[] = '-i';
+      $inputs[] = $cue['path'];
+      $sfxInputs[] = ['idx' => $nextIdx, 'cue' => $cue];
+      $nextIdx++;
     }
 
     $concat = '';
@@ -443,24 +547,56 @@ final class VideoAssembler {
     $concat .= 'concat=n=' . count($segments) . ':v=1:a=0[vout]';
 
     $fadeStart = max(0.0, $total - self::FADE_OUT_SEC);
+    $hasSfx = $sfxInputs !== [];
 
+    // Voice (+ ducked song) bed. With SFX to layer it stops at [bed] so the
+    // master fade is applied once at the very end; without SFX it emits [aout]
+    // directly — byte-identical to the pre-SFX behavior (montage/fallback paths).
+    $bedOut = $hasSfx ? '[bed]' : '[aout]';
     if ($songPath !== NULL) {
-      $songIdx = $voiceIdx + 1;
-      $filter = $concat . ';'
-        // Split the delayed voice: one copy drives the sidechain, the other is
-        // mixed in (a filter output label can only be consumed once).
-        . sprintf('[%d:a]adelay=%d|%d,asplit=2[voice_main][voice_sc];', $voiceIdx, $introMs, $introMs)
+      $bed = sprintf('[%d:a]adelay=%d|%d,asplit=2[voice_main][voice_sc];', $voiceIdx, $introMs, $introMs)
         . sprintf('[%d:a]volume=%.3f[music];', $songIdx, self::SONG_VOLUME)
         . '[music][voice_sc]sidechaincompress=threshold=0.05:ratio=6:attack=5:release=300[duck];'
-        . sprintf(
-          '[voice_main][duck]amix=inputs=2:duration=longest:dropout_transition=0,afade=t=out:st=%.3f:d=%.3f[aout]',
-          $fadeStart, self::FADE_OUT_SEC
-        );
+        . '[voice_main][duck]amix=inputs=2:duration=longest:dropout_transition=0';
+      $bed .= $hasSfx
+        ? $bedOut
+        : sprintf(',afade=t=out:st=%.3f:d=%.3f[aout]', $fadeStart, self::FADE_OUT_SEC);
     }
     else {
-      // No song: just place the voice at the talk offset over silence.
-      $filter = $concat . ';'
-        . sprintf('[%d:a]adelay=%d|%d,apad[aout]', $voiceIdx, $introMs, $introMs);
+      // No song: place the voice at the talk offset over padded silence.
+      $bed = sprintf('[%d:a]adelay=%d|%d,apad%s', $voiceIdx, $introMs, $introMs, $bedOut);
+    }
+
+    $filter = $concat . ';' . $bed;
+
+    if ($hasSfx) {
+      $mixLabels = ['[bed]'];
+      foreach ($sfxInputs as $i => $meta) {
+        $cue = $meta['cue'];
+        $chain = sprintf('[%d:a]volume=%.3f', $meta['idx'], $cue['volume']);
+        // Bound looped/windowed clips to their slot, resetting timestamps so the
+        // subsequent adelay positions them correctly.
+        if ($cue['trim'] !== NULL) {
+          $chain .= sprintf(',atrim=0:%.3f,asetpts=PTS-STARTPTS', $cue['trim']);
+        }
+        if ($cue['fadeIn'] > 0) {
+          $chain .= sprintf(',afade=t=in:st=0:d=%.3f', $cue['fadeIn']);
+        }
+        // Fade-out is anchored to the (known) trimmed length.
+        if ($cue['fadeOut'] > 0 && $cue['trim'] !== NULL) {
+          $chain .= sprintf(',afade=t=out:st=%.3f:d=%.3f', max(0.0, $cue['trim'] - $cue['fadeOut']), $cue['fadeOut']);
+        }
+        $chain .= sprintf(',adelay=%d:all=1[sfx%d]', $cue['delayMs'], $i);
+        $filter .= ';' . $chain;
+        $mixLabels[] = sprintf('[sfx%d]', $i);
+      }
+      // normalize=0 keeps the balanced bed at unity; SFX ride on top at their
+      // own levels. One master fade closes the whole mix.
+      $filter .= ';' . implode('', $mixLabels)
+        . sprintf(
+          'amix=inputs=%d:normalize=0:duration=longest:dropout_transition=0,afade=t=out:st=%.3f:d=%.3f[aout]',
+          count($mixLabels), $fadeStart, self::FADE_OUT_SEC
+        );
     }
 
     return array_merge(

@@ -1,0 +1,31 @@
+uuid: a1000000-0000-4000-8000-00000000003b
+langcode: en
+status: true
+dependencies:
+  config:
+    - field.storage.node.field_sfx_category
+    - node.type.sound_effect
+    - taxonomy.vocabulary.sfx_category
+  module:
+    - taxonomy
+id: node.sound_effect.field_sfx_category
+field_name: field_sfx_category
+entity_type: node
+bundle: sound_effect
+label: Category
+description: 'Which sound-effect category this clip belongs to (flash, crowd, words, applause).'
+required: true
+translatable: false
+default_value: {  }
+default_value_callback: ''
+settings:
+  handler: 'default:taxonomy_term'
+  handler_settings:
+    target_bundles:
+      sfx_category: sfx_category
+    sort:
+      field: name
+      direction: asc
+    auto_create: false
+    auto_create_bundle: ''
+field_type: entity_reference

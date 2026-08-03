@@ -1,0 +1,54 @@
+<?php
+
+/**
+ * @file
+ * Install/update hooks for the Fashion Video module.
+ */
+
+declare(strict_types=1);
+
+/**
+ * The SFX taxonomy vocabulary and its seeded category terms.
+ */
+const FASHION_VIDEO_SFX_VOCAB = 'sfx_category';
+const FASHION_VIDEO_SFX_TERMS = ['flash', 'crowd', 'words', 'applause'];
+
+/**
+ * Implements hook_install().
+ *
+ * Seeds the SFX category terms on a fresh install (the vocabulary itself comes
+ * from config). Idempotent, so it's safe alongside the update hook.
+ */
+function fashion_video_install(): void {
+  _fashion_video_seed_sfx_terms();
+}
+
+/**
+ * Seed the SFX category taxonomy terms (flash, crowd, words, applause).
+ *
+ * Requires the `sfx_category` vocabulary to already exist (import config first),
+ * so on existing sites run `drush cim` before `drush updb`.
+ */
+function fashion_video_update_10001(): void {
+  _fashion_video_seed_sfx_terms();
+}
+
+/**
+ * Creates any missing SFX category terms. Idempotent.
+ */
+function _fashion_video_seed_sfx_terms(): void {
+  $storage = \Drupal::entityTypeManager()->getStorage('taxonomy_term');
+  foreach (FASHION_VIDEO_SFX_TERMS as $name) {
+    $existing = $storage->loadByProperties([
+      'vid' => FASHION_VIDEO_SFX_VOCAB,
+      'name' => $name,
+    ]);
+    if ($existing) {
+      continue;
+    }
+    $storage->create([
+      'vid' => FASHION_VIDEO_SFX_VOCAB,
+      'name' => $name,
+    ])->save();
+  }
+}

@@ -34,7 +34,7 @@ final class MotionClipGenerator {
   private const QUEUE_BASE = 'https://queue.fal.run/';
 
   /** Default motion prompt for a runway still. */
-  private const DEFAULT_PROMPT = 'High-fashion runway show: the model struts forward taking a few confident catwalk steps toward the camera, stops and strikes a fierce dramatic pose, then turns. A dynamic cinematic camera sweeps and pans with a slow push-in following the movement. On both sides of the runway, crowds of paparazzi photographers rapidly snap photos; bright white camera flashes strobe and flicker, visibly lighting up the model and the scene. Editorial high-fashion lighting, glamorous dramatic atmosphere, fabric and hair moving naturally. No text, no captions, no watermark.';
+  private const DEFAULT_PROMPT = 'High-fashion runway show: the model struts forward taking a few confident catwalk steps toward the camera, stops and strikes a fierce dramatic pose, then turns. A dynamic cinematic camera sweeps and pans with a slow push-in following the movement. On both sides of the runway, dense crowds of paparazzi photographers erupt in a frenzy of pictures — an intense, relentless storm of brilliant white camera flashes firing constantly from every direction, blinding bursts and strobing pops that flare and bloom across the frame and dramatically light up the model, casting hard flickering highlights and sharp moving shadows. Editorial high-fashion lighting, glamorous dramatic atmosphere, fabric and hair moving naturally. No text, no captions, no watermark.';
 
   public function __construct(
     private readonly ClientInterface $httpClient,

@@ -1,0 +1,81 @@
+uuid: a1000000-0000-4000-8000-00000000003d
+langcode: en
+status: true
+dependencies:
+  config:
+    - field.field.node.sound_effect.field_attribution
+    - field.field.node.sound_effect.field_audio
+    - field.field.node.sound_effect.field_sfx_category
+    - node.type.sound_effect
+  module:
+    - file
+id: node.sound_effect.default
+targetEntityType: node
+bundle: sound_effect
+mode: default
+content:
+  created:
+    type: datetime_timestamp
+    weight: 10
+    region: content
+    settings: {  }
+    third_party_settings: {  }
+  field_attribution:
+    type: string_textfield
+    weight: 3
+    region: content
+    settings:
+      size: 60
+      placeholder: ''
+    third_party_settings: {  }
+  field_audio:
+    type: file_generic
+    weight: 1
+    region: content
+    settings:
+      progress_indicator: throbber
+    third_party_settings: {  }
+  field_sfx_category:
+    type: entity_reference_autocomplete
+    weight: 2
+    region: content
+    settings:
+      match_operator: CONTAINS
+      match_limit: 10
+      size: 60
+      placeholder: ''
+    third_party_settings: {  }
+  path:
+    type: path
+    weight: 30
+    region: content
+    settings: {  }
+    third_party_settings: {  }
+  status:
+    type: boolean_checkbox
+    weight: 12
+    region: content
+    settings:
+      display_label: true
+    third_party_settings: {  }
+  title:
+    type: string_textfield
+    weight: 0
+    region: content
+    settings:
+      size: 60
+      placeholder: ''
+    third_party_settings: {  }
+  uid:
+    type: entity_reference_autocomplete
+    weight: 11
+    region: content
+    settings:
+      match_operator: CONTAINS
+      match_limit: 10
+      size: 60
+      placeholder: ''
+    third_party_settings: {  }
+hidden:
+  promote: true
+  sticky: true
