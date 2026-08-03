@@ -11,7 +11,7 @@ declare(strict_types=1);
  * The SFX taxonomy vocabulary and its seeded category terms.
  */
 const FASHION_VIDEO_SFX_VOCAB = 'sfx_category';
-const FASHION_VIDEO_SFX_TERMS = ['flash', 'crowd', 'words', 'applause'];
+const FASHION_VIDEO_SFX_TERMS = ['flash', 'crowd', 'words', 'applause', 'closeup'];
 
 /**
  * Implements hook_install().
@@ -30,6 +30,13 @@ function fashion_video_install(): void {
  * so on existing sites run `drush cim` before `drush updb`.
  */
 function fashion_video_update_10001(): void {
+  _fashion_video_seed_sfx_terms();
+}
+
+/**
+ * Seed the "closeup" SFX category term (played when the closeup stage begins).
+ */
+function fashion_video_update_10002(): void {
   _fashion_video_seed_sfx_terms();
 }
 

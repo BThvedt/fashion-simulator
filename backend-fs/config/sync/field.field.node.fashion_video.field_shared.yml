@@ -1,0 +1,20 @@
+uuid: a1000000-0000-4000-8000-000000000040
+langcode: en
+status: true
+dependencies:
+  config:
+    - field.storage.node.field_shared
+    - node.type.fashion_video
+id: node.fashion_video.field_shared
+field_name: field_shared
+entity_type: node
+bundle: fashion_video
+label: Shared
+description: 'Whether this video is publicly viewable via its share token.'
+required: false
+translatable: false
+default_value:
+  - value: 0
+default_value_callback: ''
+settings: {  }
+field_type: boolean

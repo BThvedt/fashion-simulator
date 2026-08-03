@@ -218,6 +218,113 @@ final class FashionVideoUploadController extends ControllerBase {
   }
 
   /**
+   * GET /fashion-video/sfx/{category}
+   *
+   * Returns a short-lived presigned URL for one random published sound_effect
+   * in the given SFX category (by term name), or {url: null} if none. Used by
+   * the capture flow to play a cue (e.g. the "closeup" sting).
+   */
+  public function sfx(string $category): JsonResponse {
+    $allowed = ['flash', 'crowd', 'words', 'applause', 'closeup'];
+    if (!in_array($category, $allowed, TRUE)) {
+      return new JsonResponse(['url' => NULL], 400);
+    }
+
+    $termStorage = $this->entityTypeManager()->getStorage('taxonomy_term');
+    $terms = $termStorage->loadByProperties([
+      'vid' => 'sfx_category',
+      'name' => $category,
+    ]);
+    if (!$terms) {
+      return new JsonResponse(['url' => NULL]);
+    }
+    $tids = array_map(static fn ($t) => $t->id(), $terms);
+
+    $nodeStorage = $this->entityTypeManager()->getStorage('node');
+    $ids = array_values($nodeStorage->getQuery()
+      ->accessCheck(TRUE)
+      ->condition('type', 'sound_effect')
+      ->condition('status', 1)
+      ->condition('field_sfx_category', $tids, 'IN')
+      ->execute());
+    if (!$ids) {
+      return new JsonResponse(['url' => NULL]);
+    }
+
+    $url = NULL;
+    $node = $nodeStorage->load($ids[random_int(0, count($ids) - 1)]);
+    if ($node instanceof NodeInterface && $node->hasField('field_audio') && !$node->get('field_audio')->isEmpty()) {
+      $file = $node->get('field_audio')->entity;
+      if ($file instanceof FileInterface) {
+        $url = $this->uploader->presignedUrl($file);
+      }
+    }
+
+    return new JsonResponse(['url' => $url ?: NULL]);
+  }
+
+  /**
+   * GET /fashion-video/thumbnails
+   *
+   * Lists the fashion videos the current user may view (their own; everyone's
+   * for admins), newest first, each with a short-lived presigned thumbnail URL
+   * derived from the face closeup. Powers the home-page grid.
+   */
+  public function thumbnails(): JsonResponse {
+    $storage = $this->entityTypeManager()->getStorage('node');
+    // accessCheck(TRUE) applies the module's per-owner node grants, matching the
+    // JSON:API scoping the grid relied on before.
+    $ids = $storage->getQuery()
+      ->accessCheck(TRUE)
+      ->condition('type', 'fashion_video')
+      ->sort('created', 'DESC')
+      ->range(0, 50)
+      ->execute();
+
+    $items = [];
+    foreach ($storage->loadMultiple($ids) as $node) {
+      if (!$node instanceof NodeInterface) {
+        continue;
+      }
+      $items[] = [
+        'id' => $node->uuid(),
+        'title' => $node->getTitle(),
+        'thumbnailUrl' => $this->closeupThumbnailUrl($node) ?? '',
+      ];
+    }
+
+    return new JsonResponse($items);
+  }
+
+  /**
+   * Presigned URL for a node's face-closeup image, or NULL if none.
+   *
+   * The closeup is appended after the three body shots (index MAX_AI_IMAGES).
+   * Prefer the generated beauty closeup; fall back to the captured face photo
+   * so a thumbnail is available before/without AI generation.
+   */
+  private function closeupThumbnailUrl(NodeInterface $node): ?string {
+    foreach (['field_ai_images', 'field_pose_images'] as $field) {
+      if (!$node->hasField($field)) {
+        continue;
+      }
+      $media = $node->get($field)->referencedEntities();
+      $closeup = $media[self::MAX_AI_IMAGES] ?? NULL;
+      if (!$closeup instanceof MediaInterface) {
+        continue;
+      }
+      $file = $closeup->get('field_media_image')->entity;
+      if ($file instanceof FileInterface) {
+        $url = $this->uploader->presignedUrl($file);
+        if ($url) {
+          return $url;
+        }
+      }
+    }
+    return NULL;
+  }
+
+  /**
    * GET /fashion-video/{uuid}/media
    *
    * Returns the node title plus short-lived presigned URLs for its pose images,
@@ -225,13 +332,93 @@ final class FashionVideoUploadController extends ControllerBase {
    */
   public function media(string $uuid): JsonResponse {
     $node = $this->loadOwnedNode($uuid);
+    return new JsonResponse($this->buildMediaPayload($node, TRUE));
+  }
 
+  /**
+   * GET /fashion-video/shared/{token}/media
+   *
+   * Public, unauthenticated read of a video that has been shared. Returns 404
+   * unless a node with this token exists AND sharing is currently enabled, so
+   * revoking a share (which clears the token) permanently kills old links.
+   */
+  public function sharedMedia(string $token): JsonResponse {
+    $node = $this->loadSharedNode($token);
+    return new JsonResponse($this->buildMediaPayload($node, FALSE));
+  }
+
+  /**
+   * POST /fashion-video/{uuid}/share
+   *
+   * Enables public sharing: mints a fresh hard-to-guess token and flips the
+   * shared flag on. Returns the token so the caller can build the public URL.
+   */
+  public function share(string $uuid): JsonResponse {
+    $node = $this->loadOwnedNode($uuid);
+    // A fresh token each time we (re-)enable sharing, so any previously shared
+    // (then revoked) link can never be resurrected.
+    $token = bin2hex(random_bytes(16));
+    $node->set('field_share_token', $token);
+    $node->set('field_shared', TRUE);
+    $node->save();
+
+    return new JsonResponse(['shared' => TRUE, 'token' => $token]);
+  }
+
+  /**
+   * POST /fashion-video/{uuid}/unshare
+   *
+   * Revokes public sharing: clears the flag and the token, so the public
+   * endpoint (which requires both) immediately 404s for the old link.
+   */
+  public function unshare(string $uuid): JsonResponse {
+    $node = $this->loadOwnedNode($uuid);
+    $node->set('field_shared', FALSE);
+    $node->set('field_share_token', NULL);
+    $node->save();
+
+    return new JsonResponse(['shared' => FALSE]);
+  }
+
+  /**
+   * Builds the media JSON for a node.
+   *
+   * @param bool $owner
+   *   TRUE for the authenticated owner/admin view (includes sharing state and
+   *   owner-only extras); FALSE for the trimmed public share view.
+   *
+   * @return array<string, mixed>
+   */
+  private function buildMediaPayload(NodeInterface $node, bool $owner): array {
     $analysis = NULL;
     if ($node->hasField('field_style_analysis') && !$node->get('field_style_analysis')->isEmpty()) {
       $decoded = json_decode((string) $node->get('field_style_analysis')->value, TRUE);
       if (is_array($decoded)) {
         $analysis = $decoded;
       }
+    }
+
+    $video = NULL;
+    if (!$node->get('field_generated_video')->isEmpty()) {
+      $media = $node->get('field_generated_video')->entity;
+      if ($media instanceof MediaInterface) {
+        $file = $media->get('field_media_video_file')->entity;
+        if ($file) {
+          $video = $this->uploader->presignedUrl($file);
+        }
+      }
+    }
+
+    $payload = [
+      'title' => $node->getTitle(),
+      'poses' => $this->presignedImages($node, 'field_pose_images'),
+      'aiImages' => $this->presignedImages($node, 'field_ai_images'),
+      'analysis' => $analysis,
+      'video' => $video,
+    ];
+
+    if (!$owner) {
+      return $payload;
     }
 
     $song = NULL;
@@ -247,28 +434,20 @@ final class FashionVideoUploadController extends ControllerBase {
       }
     }
 
-    $video = NULL;
-    if (!$node->get('field_generated_video')->isEmpty()) {
-      $media = $node->get('field_generated_video')->entity;
-      if ($media instanceof MediaInterface) {
-        $file = $media->get('field_media_video_file')->entity;
-        if ($file) {
-          $video = $this->uploader->presignedUrl($file);
-        }
-      }
+    $shared = $node->hasField('field_shared') && (bool) $node->get('field_shared')->value;
+    $token = NULL;
+    if ($node->hasField('field_share_token') && !$node->get('field_share_token')->isEmpty()) {
+      $token = (string) $node->get('field_share_token')->value;
     }
 
-    return new JsonResponse([
-      'title' => $node->getTitle(),
-      'poses' => $this->presignedImages($node, 'field_pose_images'),
-      'aiImages' => $this->presignedImages($node, 'field_ai_images'),
-      'analysis' => $analysis,
+    return $payload + [
       'song' => $song,
       'voice' => $voice,
-      'video' => $video,
       'motionClips' => $this->presignedMotionClips($node),
       'canRegenerate' => $this->canRegenerate(),
-    ]);
+      'shared' => $shared,
+      'token' => $shared ? $token : NULL,
+    ];
   }
 
   /**
@@ -1090,6 +1269,33 @@ final class FashionVideoUploadController extends ControllerBase {
     $isOwner = (int) $node->getOwnerId() === (int) $account->id();
     if (!$isOwner && !$account->hasPermission('bypass node access')) {
       throw new AccessDeniedHttpException('You may only add images to your own fashion videos.');
+    }
+
+    return $node;
+  }
+
+  /**
+   * Loads a fashion_video node by its public share token.
+   *
+   * Bypasses node access on purpose (anonymous visitors can't normally view a
+   * private node) — the token itself plus the enabled `field_shared` flag are
+   * the authorization. loadByProperties runs with access checks off, so both
+   * conditions must be met or nothing is returned.
+   */
+  private function loadSharedNode(string $token): NodeInterface {
+    if ($token === '' || !ctype_xdigit($token)) {
+      throw new NotFoundHttpException('Not found.');
+    }
+
+    $nodes = $this->entityTypeManager()->getStorage('node')->loadByProperties([
+      'type' => 'fashion_video',
+      'field_share_token' => $token,
+      'field_shared' => 1,
+    ]);
+    /** @var \Drupal\node\NodeInterface|false $node */
+    $node = reset($nodes);
+    if (!$node instanceof NodeInterface) {
+      throw new NotFoundHttpException('This video is not shared.');
     }
 
     return $node;

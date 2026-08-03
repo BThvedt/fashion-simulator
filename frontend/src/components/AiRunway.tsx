@@ -21,17 +21,20 @@ export default function AiRunway({
   id,
   poses,
   initialImages,
+  readOnly = false,
 }: {
   id: string;
   poses: string[];
   initialImages: string[];
+  /** Public/shared view: never triggers or polls generation (auth-only). */
+  readOnly?: boolean;
 }) {
   const [images, setImages] = useState<string[]>(initialImages ?? []);
   const [failed, setFailed] = useState(false);
   const started = useRef(false);
 
   useEffect(() => {
-    if (images.length > 0 || started.current) return;
+    if (readOnly || images.length > 0 || started.current) return;
     started.current = true;
 
     let cancelled = false;
@@ -60,9 +63,9 @@ export default function AiRunway({
     return () => {
       cancelled = true;
     };
-  }, [id, images.length]);
+  }, [id, images.length, readOnly]);
 
-  const pending = images.length === 0 && !failed;
+  const pending = !readOnly && images.length === 0 && !failed;
 
   const bodyPoses = poses.slice(0, BODY_COUNT);
   const closeupPose = poses[BODY_COUNT];

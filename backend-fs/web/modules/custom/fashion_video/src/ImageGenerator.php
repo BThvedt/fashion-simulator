@@ -57,10 +57,11 @@ final class ImageGenerator {
 
     // Match the reference person's facial hair rather than inventing or removing
     // it — applied to every look so beards/stubble/clean-shaven stay consistent.
-    $facialHair = ' Match the reference photo\'s FACIAL HAIR: if they have a '
-      . 'beard, moustache, goatee or stubble, give them the same facial-hair '
-      . 'shape, length and color; if they are clean-shaven, keep them '
-      . 'clean-shaven.';
+    $facialHair = ' Match the reference photo\'s FACIAL HAIR exactly: if they '
+      . 'have a beard, moustache, goatee or stubble, give them the same '
+      . 'facial-hair shape, length AND COLOR — the facial hair must be the same '
+      . 'natural color it is in the reference photo; if they are clean-shaven, '
+      . 'keep them clean-shaven.';
 
     $base = sprintf(
       'Ultra-glossy high-fashion editorial photo, an intentionally absurd and '
@@ -185,8 +186,9 @@ final class ImageGenerator {
 
     foreach ($targets as $slot => $target) {
       $prompts[$target] .= sprintf(
-        ' Their hair is dyed a bold, unnatural color — %s — which overrides the '
-        . 'reference hair color.',
+        ' The hair ON THEIR HEAD is dyed a bold, unnatural color — %s — which '
+        . 'overrides the reference head-hair color. Any FACIAL HAIR is NOT dyed '
+        . 'and keeps the subject\'s natural reference color.',
         $colors[$slot],
       );
     }

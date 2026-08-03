@@ -47,7 +47,7 @@ export default function VideoThumbnails({
             href={`/videos/${video.id}`}
             className="group block overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-primary"
           >
-            <div className="aspect-video overflow-hidden bg-muted">
+            <div className="aspect-[3/4] overflow-hidden bg-muted">
               {video.thumbnailUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img

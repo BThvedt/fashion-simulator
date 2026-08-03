@@ -11,20 +11,24 @@ import VideoThumbnails, {
  * for admins), newest first. Node access grants scope the result per user.
  */
 async function loadVideos(): Promise<VideoThumbnail[]> {
-  const res = await drupalFetch(
-    "/jsonapi/node/fashion_video?fields[node--fashion_video]=title,created&sort=-created&page[limit]=50",
-    { cache: "no-store" }
-  );
+  // Custom endpoint (rather than JSON:API) so each item carries a short-lived
+  // presigned thumbnail URL derived from the face closeup. Access is scoped to
+  // the user's own videos (all for admins) via node grants.
+  const res = await drupalFetch("/fashion-video/thumbnails", {
+    cache: "no-store",
+  });
   if (!res.ok) return [];
 
   const body = (await res.json()) as {
-    data: { id: string; attributes: { title: string } }[];
-  };
-  return body.data.map((node) => ({
+    id: string;
+    title: string;
+    thumbnailUrl: string;
+  }[];
+  return body.map((node) => ({
     id: node.id,
     // Stored with seconds (e.g. "2026-07-20 16:19:32"); show to the minute.
-    title: (node.attributes.title ?? "").replace(/:\d{2}$/, ""),
-    thumbnailUrl: "",
+    title: (node.title ?? "").replace(/:\d{2}$/, ""),
+    thumbnailUrl: node.thumbnailUrl ?? "",
   }));
 }
 

@@ -293,6 +293,145 @@
   font-size: 13px;
 }
 
+/* ---------- closeup-stage reveal: big sliding title + sparkle burst ---------- */
+.coverage[data-stage="closeup"] h2 {
+  font-size: clamp(32px, 6.5vw, 60px);
+  line-height: 1.1;
+  text-shadow:
+    0 0 20px color-mix(in oklch, var(--primary) 60%, transparent),
+    0 0 6px color-mix(in oklch, var(--foreground) 30%, transparent);
+  animation: closeup-slide 0.7s cubic-bezier(0.2, 0.9, 0.25, 1.2) both;
+}
+@keyframes closeup-slide {
+  0% {
+    transform: translateY(-160%);
+    opacity: 0;
+  }
+  70% {
+    transform: translateY(6%);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+/* Hint under the closeup title: more prominent than the body-stage copy, but
+   clearly secondary to the big title. */
+.coverage[data-stage="closeup"] p {
+  font-size: clamp(16px, 2.6vw, 24px);
+  font-weight: 600;
+  color: var(--foreground);
+  max-width: 22ch;
+}
+
+/* Sparkle layer — only rendered during the closeup stage. */
+.closeupSparkles {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  display: none;
+}
+.coverage[data-stage="closeup"] .closeupSparkles {
+  display: block;
+}
+.sparkle {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  background: radial-gradient(
+    circle,
+    #fff 0%,
+    rgba(255, 255, 255, 0.9) 30%,
+    rgba(255, 255, 255, 0) 70%
+  );
+  /* 4-point star */
+  clip-path: polygon(
+    50% 0%,
+    61% 39%,
+    100% 50%,
+    61% 61%,
+    50% 100%,
+    39% 61%,
+    0% 50%,
+    39% 39%
+  );
+  opacity: 0;
+  transform: scale(0);
+  filter: drop-shadow(
+    0 0 6px color-mix(in oklch, var(--primary) 70%, transparent)
+  );
+  /* One-shot burst; delays (below) start just after the title slides in. */
+  animation: sparkle-pop 1s ease-out both;
+}
+.sparkle:nth-child(1) {
+  left: 18%;
+  top: 26%;
+  animation-delay: 0.55s;
+}
+.sparkle:nth-child(2) {
+  left: 74%;
+  top: 30%;
+  animation-delay: 0.7s;
+}
+.sparkle:nth-child(3) {
+  left: 32%;
+  top: 62%;
+  animation-delay: 0.85s;
+}
+.sparkle:nth-child(4) {
+  left: 82%;
+  top: 60%;
+  animation-delay: 0.65s;
+}
+.sparkle:nth-child(5) {
+  left: 50%;
+  top: 18%;
+  animation-delay: 0.95s;
+}
+.sparkle:nth-child(6) {
+  left: 12%;
+  top: 55%;
+  animation-delay: 0.8s;
+}
+.sparkle:nth-child(7) {
+  left: 62%;
+  top: 72%;
+  animation-delay: 1.05s;
+}
+.sparkle:nth-child(8) {
+  left: 44%;
+  top: 46%;
+  animation-delay: 0.9s;
+}
+@keyframes sparkle-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0) rotate(0deg);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(1.25) rotate(35deg);
+  }
+  70% {
+    opacity: 0.85;
+    transform: scale(0.95) rotate(70deg);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.4) rotate(110deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .coverage[data-stage="closeup"] h2 {
+    animation: none;
+  }
+  .closeupSparkles {
+    display: none !important;
+  }
+}
+
 /* ---------- ready screen (feed live behind) ---------- */
 .ready {
   position: absolute;
@@ -637,6 +776,27 @@
   letter-spacing: 0.01em;
   color: #fff;
   text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
+}
+/* Wrap-up subheading + spinner shown while the video is being generated. */
+.wrapSub {
+  margin: 0;
+  font-weight: 600;
+  font-size: clamp(18px, 3.2vw, 30px);
+  color: #fff;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+}
+.spinner {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 4px solid rgba(255, 255, 255, 0.28);
+  border-top-color: #fff;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .micMissing {
   color: var(--destructive);

@@ -38,7 +38,8 @@ final class VideoAssembler {
   /** "Show" montage timing: white camera-flash, the still-B hold, fades. */
   private const FLASH_SEC = 0.2;
   private const STILLB_SEC = 2.5;
-  private const FADE_SEC = 1.0;
+  /** Crossfade (dissolve) length from the lip-sync clip into the final still. */
+  private const XFADE_SEC = 1.0;
   private const FLASH_FADE_SEC = 0.4;
 
   /**
@@ -54,7 +55,7 @@ final class VideoAssembler {
    * ends after the lip-sync; negative = ends before it (so the sting overlaps
    * and plays under the tail of the lip-sync).
    */
-  private const SFX_WORDS_TAIL_SEC = -0.5;
+  private const SFX_WORDS_TAIL_SEC = -1.5;
   private const SFX_CROWD_FADE_SEC = 0.3;
   private const SFX_APPLAUSE_FADE_IN_SEC = 0.6;
   private const SFX_APPLAUSE_FADE_OUT_SEC = 1.0;
@@ -338,7 +339,8 @@ final class VideoAssembler {
         || !$this->makeWhiteClip($segFlash, self::FLASH_SEC)
         || !$this->makePanClip($stillBPath, $segB, self::STILLB_SEC, 'white', self::FLASH_FADE_SEC)
         || !$this->normalizeTalkVideo($talkPath, $segTalk)
-        || !$this->makePanClip($stillCPath, $segC, self::SEGMENT_SEC, 'black', self::FADE_SEC)
+        // No black fade-in: the closing still is dissolved into via xfade below.
+        || !$this->makePanClip($stillCPath, $segC)
       ) {
         return NULL;
       }
@@ -347,14 +349,17 @@ final class VideoAssembler {
 
       // The voice must start when the lip-sync segment does.
       $voiceOffset = self::SEGMENT_SEC + $motionDur + self::FLASH_SEC + self::STILLB_SEC;
-      $total = $voiceOffset + $talkDur + self::SEGMENT_SEC;
+      // The closing still crossfades in over the last XFADE_SEC of the lip-sync,
+      // so the montage is XFADE_SEC shorter than a hard cut would be.
+      $crossfadeOffset = $voiceOffset + $talkDur - self::XFADE_SEC;
+      $total = $voiceOffset + $talkDur + self::SEGMENT_SEC - self::XFADE_SEC;
       $voiceOffsetMs = (int) round($voiceOffset * 1000);
 
       // Position each SFX clip on the montage timeline.
       $sfxCues = $this->buildSfxCues($dir, $sfx, $motionDur, $talkDur, $voiceOffset);
 
       $outPath = $dir . '/final.mp4';
-      $command = $this->buildMontageCommand($segments, $talkPath, $songPath, $outPath, $voiceOffsetMs, $total, $sfxCues);
+      $command = $this->buildMontageCommand($segments, $talkPath, $songPath, $outPath, $voiceOffsetMs, $total, $sfxCues, $crossfadeOffset);
       if (!$this->runFfmpeg($command, self::FFMPEG_TIMEOUT)) {
         return NULL;
       }
@@ -378,7 +383,7 @@ final class VideoAssembler {
    *  - crowd:    over the motion clip           [SEGMENT_SEC .. +motionDur]
    *  - flash:    on the white camera-flash beat  (SEGMENT_SEC + motionDur)
    *  - words:    ends SFX_WORDS_TAIL_SEC after the lip-sync ends
-   *  - applause: over the closing still, fading in then out
+   *  - applause: over the closing still (from the crossfade in), fading in/out
    *
    * Each SFX blob is written to a temp file in $dir. Categories with no clip are
    * skipped. Returns a list of cue arrays consumed by ::buildMontageCommand().
@@ -397,7 +402,7 @@ final class VideoAssembler {
       'crowd' => [self::SEGMENT_SEC, self::SFX_CROWD_VOLUME, TRUE, $motionDur, self::SFX_CROWD_FADE_SEC, self::SFX_CROWD_FADE_SEC],
       'flash' => [self::SEGMENT_SEC + $motionDur, self::SFX_FLASH_VOLUME, FALSE, NULL, 0.0, 0.0],
       'words' => [$talkEnd, self::SFX_WORDS_VOLUME, FALSE, NULL, 0.0, 0.0],
-      'applause' => [$talkEnd, self::SFX_APPLAUSE_VOLUME, TRUE, self::SEGMENT_SEC, self::SFX_APPLAUSE_FADE_IN_SEC, self::SFX_APPLAUSE_FADE_OUT_SEC],
+      'applause' => [$talkEnd - self::XFADE_SEC, self::SFX_APPLAUSE_VOLUME, TRUE, self::SEGMENT_SEC, self::SFX_APPLAUSE_FADE_IN_SEC, self::SFX_APPLAUSE_FADE_OUT_SEC],
     ];
 
     $cues = [];
@@ -506,7 +511,7 @@ final class VideoAssembler {
    *
    * @return string[]
    */
-  private function buildMontageCommand(array $segments, string $clipPath, ?string $songPath, string $outPath, int $introMs, float $total, array $sfxCues = []): array {
+  private function buildMontageCommand(array $segments, string $clipPath, ?string $songPath, string $outPath, int $introMs, float $total, array $sfxCues = [], ?float $crossfadeOffset = NULL): array {
     $inputs = [];
     foreach ($segments as $seg) {
       $inputs[] = '-i';
@@ -540,11 +545,37 @@ final class VideoAssembler {
       $nextIdx++;
     }
 
-    $concat = '';
-    for ($i = 0; $i < count($segments); $i++) {
-      $concat .= '[' . $i . ':v]';
+    $segCount = count($segments);
+    // Video track: normally a straight concat of every segment. When a crossfade
+    // offset is given (the "show" montage) the final segment is dissolved into
+    // rather than hard-cut — concat everything before it, then xfade the last.
+    if ($crossfadeOffset === NULL || $segCount < 2) {
+      $videoFilter = '';
+      for ($i = 0; $i < $segCount; $i++) {
+        $videoFilter .= '[' . $i . ':v]';
+      }
+      $videoFilter .= 'concat=n=' . $segCount . ':v=1:a=0[vout]';
     }
-    $concat .= 'concat=n=' . count($segments) . ':v=1:a=0[vout]';
+    else {
+      $lastIdx = $segCount - 1;
+      $headCount = $segCount - 1;
+      // xfade requires both inputs to share a timebase, but concat's output
+      // timebase differs from a single clip's — pin both to AVTB before fading.
+      $videoFilter = '';
+      if ($headCount >= 2) {
+        for ($i = 0; $i < $headCount; $i++) {
+          $videoFilter .= '[' . $i . ':v]';
+        }
+        $videoFilter .= 'concat=n=' . $headCount . ':v=1:a=0,settb=AVTB[xhead];';
+      }
+      else {
+        $videoFilter .= '[0:v]settb=AVTB[xhead];';
+      }
+      $videoFilter .= sprintf(
+        '[%d:v]settb=AVTB[xtail];[xhead][xtail]xfade=transition=fade:duration=%.3f:offset=%.3f,format=yuv420p[vout]',
+        $lastIdx, self::XFADE_SEC, $crossfadeOffset
+      );
+    }
 
     $fadeStart = max(0.0, $total - self::FADE_OUT_SEC);
     $hasSfx = $sfxInputs !== [];
@@ -567,7 +598,7 @@ final class VideoAssembler {
       $bed = sprintf('[%d:a]adelay=%d|%d,apad%s', $voiceIdx, $introMs, $introMs, $bedOut);
     }
 
-    $filter = $concat . ';' . $bed;
+    $filter = $videoFilter . ';' . $bed;
 
     if ($hasSfx) {
       $mixLabels = ['[bed]'];

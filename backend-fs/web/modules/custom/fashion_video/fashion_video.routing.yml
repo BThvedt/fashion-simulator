@@ -29,6 +29,29 @@ fashion_video.songs:
     _auth: ['oauth2', 'cookie']
     no_cache: 'TRUE'
 
+fashion_video.sfx:
+  path: '/fashion-video/sfx/{category}'
+  defaults:
+    _controller: 'Drupal\fashion_video\Controller\FashionVideoUploadController::sfx'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    category: '[a-z]+'
+  options:
+    _auth: ['oauth2', 'cookie']
+    no_cache: 'TRUE'
+
+fashion_video.thumbnails:
+  path: '/fashion-video/thumbnails'
+  defaults:
+    _controller: 'Drupal\fashion_video\Controller\FashionVideoUploadController::thumbnails'
+  methods: [GET]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+  options:
+    _auth: ['oauth2', 'cookie']
+    no_cache: 'TRUE'
+
 fashion_video.media:
   path: '/fashion-video/{uuid}/media'
   defaults:
@@ -99,4 +122,41 @@ fashion_video.reset_video:
     uuid: '[0-9a-fA-F-]+'
   options:
     _auth: ['oauth2', 'cookie']
+    no_cache: 'TRUE'
+
+fashion_video.share:
+  path: '/fashion-video/{uuid}/share'
+  defaults:
+    _controller: 'Drupal\fashion_video\Controller\FashionVideoUploadController::share'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    uuid: '[0-9a-fA-F-]+'
+  options:
+    _auth: ['oauth2', 'cookie']
+    no_cache: 'TRUE'
+
+fashion_video.unshare:
+  path: '/fashion-video/{uuid}/unshare'
+  defaults:
+    _controller: 'Drupal\fashion_video\Controller\FashionVideoUploadController::unshare'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    uuid: '[0-9a-fA-F-]+'
+  options:
+    _auth: ['oauth2', 'cookie']
+    no_cache: 'TRUE'
+
+# Public, unauthenticated read of a *shared* video by its hard-to-guess token.
+# Returns 404 unless a fashion_video node with that token has sharing enabled.
+fashion_video.shared_media:
+  path: '/fashion-video/shared/{token}/media'
+  defaults:
+    _controller: 'Drupal\fashion_video\Controller\FashionVideoUploadController::sharedMedia'
+  methods: [GET]
+  requirements:
+    _access: 'TRUE'
+    token: '[0-9a-fA-F]+'
+  options:
     no_cache: 'TRUE'

@@ -1,11 +1,7 @@
-import { notFound, redirect } from "next/navigation";
-import { getToken } from "@/lib/auth";
-import { drupalFetch } from "@/lib/drupal";
+import { notFound } from "next/navigation";
+import { drupalPublicFetch } from "@/lib/drupal";
 import AiRunway from "@/components/AiRunway";
 import VideoFilm from "@/components/VideoFilm";
-import RegenerateControls from "@/components/RegenerateControls";
-import EditableTitle from "@/components/EditableTitle";
-import ShareControls from "@/components/ShareControls";
 
 export const metadata = { title: "Fashion Video" };
 
@@ -17,68 +13,61 @@ interface StyleAnalysis {
   props: string[];
 }
 
-interface FashionVideoMedia {
+interface SharedMedia {
   title: string;
   poses: string[];
   aiImages: string[];
   analysis: StyleAnalysis | null;
   video: string | null;
-  motionClips: string[];
-  canRegenerate: boolean;
-  shared: boolean;
-  token: string | null;
 }
 
-export default async function VideoPage({
+/**
+ * Public, read-only view of a shared fashion video. Fetched anonymously by
+ * hard-to-guess token; the backend 404s unless the video is currently shared.
+ * Nothing here can trigger generation or edits — the runway/film components run
+ * in read-only mode so anonymous visitors never hit authenticated endpoints.
+ */
+export default async function SharedVideoPage({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: Promise<{ token: string }>;
 }) {
-  if (!(await getToken())) {
-    redirect("/login");
-  }
+  const { token } = await params;
 
-  const { id } = await params;
-
-  // Custom endpoint returns the title plus short-lived presigned S3 URLs for
-  // the pose images (private s3fs files aren't presigned on their own).
-  const res = await drupalFetch(`/fashion-video/${id}/media`, {
+  const res = await drupalPublicFetch(`/fashion-video/shared/${token}/media`, {
     cache: "no-store",
   });
   if (!res.ok) {
     notFound();
   }
 
-  const data = (await res.json()) as Partial<FashionVideoMedia>;
+  const data = (await res.json()) as Partial<SharedMedia>;
   const title = data.title ?? "";
   const poses = data.poses ?? [];
   const aiImages = data.aiImages ?? [];
   const analysis = data.analysis ?? null;
   const video = data.video ?? null;
-  const motionClips = data.motionClips ?? [];
-  const canRegenerate = data.canRegenerate ?? false;
-  const shared = data.shared ?? false;
-  const token = data.token ?? null;
   // Title is stored with seconds (e.g. "2026-07-20 16:19:32"); display to the
   // minute.
-  const display = (title ?? "").replace(/:\d{2}$/, "");
+  const display = title.replace(/:\d{2}$/, "");
+
+  // A shared page with no rendered video yet is unusual; treat it as not found
+  // rather than showing an empty shell.
+  if (!video && poses.length === 0) {
+    notFound();
+  }
 
   return (
     <div className="flex flex-1 flex-col bg-background">
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-10 sm:px-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <p className="mb-2 text-sm font-medium uppercase tracking-wide text-muted-foreground">
-              Fashion Video
-            </p>
-            <EditableTitle id={id} initialTitle={display} />
-          </div>
-          <div className="shrink-0 pt-6">
-            <ShareControls id={id} initialShared={shared} initialToken={token} />
-          </div>
-        </div>
+        <p className="mb-2 text-sm font-medium uppercase tracking-wide text-muted-foreground">
+          Fashion Video
+        </p>
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+          {display}
+        </h1>
 
-        <VideoFilm id={id} initialVideo={video} />
+        <VideoFilm id="" initialVideo={video} readOnly />
 
         {analysis && (
           <section className="mt-10 rounded-2xl border border-border bg-card p-6">
@@ -130,11 +119,7 @@ export default async function VideoPage({
         )}
 
         {poses.length > 0 && (
-          <AiRunway id={id} poses={poses} initialImages={aiImages} />
-        )}
-
-        {canRegenerate && (
-          <RegenerateControls id={id} motionClips={motionClips} />
+          <AiRunway id="" poses={poses} initialImages={aiImages} readOnly />
         )}
       </main>
     </div>

@@ -79,6 +79,88 @@ export async function createFashionVideo(
 }
 
 /**
+ * Renames a `fashion_video` node. Returns whether the update succeeded plus an
+ * error message on failure. The node is addressed by UUID via JSON:API, so this
+ * only succeeds for users allowed to edit the node (its owner or an admin).
+ */
+export async function updateFashionVideoTitle(
+  id: string,
+  title: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const trimmed = title.trim();
+  if (!trimmed) {
+    return { ok: false, error: "Title can’t be empty." };
+  }
+
+  try {
+    const res = await drupalFetch(`/jsonapi/node/fashion_video/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/vnd.api+json" },
+      body: JSON.stringify({
+        data: {
+          type: "node--fashion_video",
+          id,
+          attributes: { title: trimmed },
+        },
+      }),
+    });
+    if (!res.ok) {
+      return { ok: false, error: await firstError(res, "Could not rename.") };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Could not rename." };
+  }
+}
+
+/**
+ * Enables public sharing for a video. On success returns the freshly minted
+ * hard-to-guess token used to build the public `/share/{token}` URL.
+ */
+export async function shareFashionVideo(
+  id: string
+): Promise<{ ok: true; token: string } | { ok: false; error: string }> {
+  try {
+    const res = await drupalFetch(`/fashion-video/${id}/share`, {
+      method: "POST",
+    });
+    if (!res.ok) {
+      return { ok: false, error: await firstError(res, "Could not share.") };
+    }
+    const data = (await res.json()) as { token?: string };
+    if (!data.token) {
+      return { ok: false, error: "Could not share." };
+    }
+    return { ok: true, token: data.token };
+  } catch {
+    return { ok: false, error: "Could not share." };
+  }
+}
+
+/**
+ * Revokes public sharing for a video. The backend clears the token, so the old
+ * public link stops working immediately.
+ */
+export async function unshareFashionVideo(
+  id: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await drupalFetch(`/fashion-video/${id}/unshare`, {
+      method: "POST",
+    });
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: await firstError(res, "Could not make private."),
+      };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Could not make private." };
+  }
+}
+
+/**
  * Kicks off AI runway-image generation for a node. Fire-and-forget: the backend
  * keeps working after the client aborts (it sets ignore_user_abort), so we use a
  * short timeout and swallow the resulting abort/error. Poll `getFashionVideoMedia`
@@ -185,6 +267,25 @@ export async function listSongs(): Promise<SongOption[]> {
     return Array.isArray(data) ? data : [];
   } catch {
     return [];
+  }
+}
+
+/**
+ * Fetches a short-lived presigned URL for one random sound effect in the given
+ * category (e.g. "closeup"), or null if none is configured. Used by the capture
+ * flow to play a cue when a stage begins.
+ */
+export async function getSfxUrl(category: string): Promise<string | null> {
+  try {
+    const res = await drupalFetch(
+      `/fashion-video/sfx/${encodeURIComponent(category)}`,
+      { cache: "no-store" }
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as { url?: string | null };
+    return data.url ?? null;
+  } catch {
+    return null;
   }
 }
 

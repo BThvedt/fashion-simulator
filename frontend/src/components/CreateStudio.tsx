@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createFashionVideo, listSongs } from "@/app/actions/content";
+import { createFashionVideo, getSfxUrl, listSongs } from "@/app/actions/content";
 import { polishVoice } from "@/lib/voiceFx";
 import styles from "./CreateStudio.module.css";
 
@@ -117,6 +117,8 @@ export default function CreateStudio() {
     const voiceIntro = q<HTMLElement>("voiceIntro");
     const gotIt = q<HTMLElement>("gotIt");
     const voiceDone = q<HTMLButtonElement>("voiceDone");
+    const wrapSub = q<HTMLElement>("wrapSub");
+    const wrapSpinner = q<HTMLElement>("wrapSpinner");
 
     const show = (el: Element, on: boolean) =>
       el.setAttribute("data-show", on ? "true" : "false");
@@ -155,6 +157,19 @@ export default function CreateStudio() {
       .catch(() => {
         songLibrary = [];
       });
+    // One-shot "closeup" sting, played when the closeup stage begins. Fetch the
+    // presigned URL up front (random sound_effect in the "closeup" category) so
+    // it can fire instantly. Silently absent if none is configured.
+    let closeupSfx: HTMLAudioElement | null = null;
+    getSfxUrl("closeup")
+      .then((url) => {
+        if (url) {
+          closeupSfx = new Audio(url);
+          closeupSfx.volume = 0.9;
+        }
+      })
+      .catch(() => {});
+
     let bgm: HTMLAudioElement | null = null;
     let bgmTimer = 0;
     let bgmStopped = true;
@@ -306,7 +321,8 @@ export default function CreateStudio() {
       23: 0.45,
       24: 0.45,
     };
-    const LOWER: Record<number, number> = { 25: 0.3, 26: 0.3, 27: 0.25, 28: 0.25 };
+    // Only require down to the knees (~mid-shin up); ankles/feet are optional.
+    const LOWER: Record<number, number> = { 25: 0.3, 26: 0.3 };
     const EDGE = 0.03;
 
     // hysteresis so the overlay doesn't flicker at the threshold
@@ -352,7 +368,7 @@ export default function CreateStudio() {
 
     // Coverage-overlay copy for each stage.
     const COVERAGE_BODY_TITLE = "Please bring your full body into the webcam";
-    const COVERAGE_BODY_HINT = "step back until your head and feet are both in frame";
+    const COVERAGE_BODY_HINT = "step back until your head and knees are both in frame";
     const COVERAGE_FACE_TITLE = "Time for your Closeup!";
     const COVERAGE_FACE_HINT = "step closer until your face fills the frame";
 
@@ -667,6 +683,13 @@ export default function CreateStudio() {
       monitor.setAttribute("data-body", "none");
       coverageTitle.textContent = COVERAGE_FACE_TITLE;
       coverageHint.textContent = COVERAGE_FACE_HINT;
+      // Trigger the big slide-in title + sparkle burst (CSS keys off this) and
+      // fire the closeup sting once.
+      coverage.setAttribute("data-stage", "closeup");
+      if (closeupSfx) {
+        closeupSfx.currentTime = 0;
+        closeupSfx.play().catch(() => {});
+      }
       line1.textContent = "Hold that closeup!";
       stateEl.textContent = "NO FACE";
       resetSequenceUI();
@@ -688,6 +711,9 @@ export default function CreateStudio() {
       line1.textContent = "Get ready to Pose!";
       coverageTitle.textContent = COVERAGE_BODY_TITLE;
       coverageHint.textContent = COVERAGE_BODY_HINT;
+      // Back to the plain body-stage coverage; re-arms the closeup reveal so it
+      // replays if the user runs the flow again.
+      coverage.setAttribute("data-stage", "body");
       show(againBtn, false);
       resetSequenceUI();
       show(voiceUI, false);
@@ -720,9 +746,8 @@ export default function CreateStudio() {
         show(micMissing, true);
         micBtn.disabled = true;
         micBtn.style.opacity = "0.4";
-        // nothing to record — surface the generate button as a skip
-        show(voiceReview, true);
-        gotIt.style.display = "none";
+        // nothing to record — go straight to the wrap-up and auto-generate
+        beginWrapUp();
       }
     }
 
@@ -744,10 +769,9 @@ export default function CreateStudio() {
         voiceBlob = new Blob(recChunks, {
           type: mediaRec?.mimeType || "audio/webm",
         });
-        // collapse the prompt/quotes/mic down to just the confirmation
+        // collapse the prompt/quotes/mic down to the wrap-up + auto-generate
         voiceIntro.style.display = "none";
-        show(voiceReview, true);
-        // TODO: POST voiceBlob to the server alongside the photos.
+        beginWrapUp();
       };
       pauseMusic();
       mediaRec.start();
@@ -824,12 +848,11 @@ export default function CreateStudio() {
       for (const [i, v] of Object.entries(UPPER))
         if (!landmarkOk(lms[+i], v)) return false;
 
+      // Require the knees (roughly mid-shin up); ankles and feet are no longer
+      // needed. Tolerate one missing knee so turned / occluded-leg poses pass.
       let misses = 0;
       for (const [i, v] of Object.entries(LOWER))
         if (!landmarkOk(lms[+i], v)) misses++;
-
-      if (!landmarkOk(lms[31], 0.15) && !landmarkOk(lms[29], 0.15)) misses++;
-      if (!landmarkOk(lms[32], 0.15) && !landmarkOk(lms[30], 0.15)) misses++;
 
       return misses <= 1;
     }
@@ -1024,11 +1047,31 @@ export default function CreateStudio() {
     const onAgain = () => resetAll();
     const onMic = () => (recording ? stopRec() : startRec());
     let generating = false;
-    const onDone = async () => {
+    let navTimer = 0;
+
+    // Shows the wrap-up screen — big "That's a Wrap!", a smaller "generating"
+    // line and a spinner — and auto-starts generation. No button press needed.
+    function beginWrapUp() {
+      gotIt.textContent = "That's a Wrap!";
+      gotIt.style.display = "";
+      wrapSub.style.display = "";
+      wrapSpinner.style.display = "";
+      voiceDone.style.display = "none";
+      show(voiceReview, true);
+      void startGeneration();
+    }
+
+    // Persists the poses/voice/song (server action) and, once the node exists,
+    // holds on the wrap-up screen a beat before routing to the video page. On
+    // failure it swaps the spinner for the error and a "Try again" button.
+    async function startGeneration() {
       if (generating) return;
       generating = true;
-      voiceDone.disabled = true;
-      voiceDone.textContent = "Generating…";
+      wrapSub.style.display = "";
+      wrapSpinner.style.display = "";
+      voiceDone.style.display = "none";
+      gotIt.textContent = "That's a Wrap!";
+
       // Pose photos, the voice clip, and the chosen song are all persisted on
       // the node by the server action (voice + poses land in S3).
       let voice: string | null = null;
@@ -1053,22 +1096,28 @@ export default function CreateStudio() {
       if (disposed) return;
       if (result.ok) {
         stopMusic();
-        restoreTheme();
-        routerRef.current.push(`/videos/${result.id}`);
+        // Let the "That's a Wrap!" moment land before whisking them away.
+        navTimer = window.setTimeout(() => {
+          if (disposed) return;
+          restoreTheme();
+          routerRef.current.push(`/videos/${result.id}`);
+        }, 2200);
       } else {
         generating = false;
-        voiceDone.disabled = false;
-        voiceDone.textContent = "Generate My Fashion Video!";
+        wrapSub.style.display = "none";
+        wrapSpinner.style.display = "none";
         gotIt.textContent = result.error;
+        voiceDone.textContent = "Try again";
+        voiceDone.style.display = "";
       }
-    };
+    }
 
     startEl.addEventListener("click", onStart);
     retry.addEventListener("click", onRetry);
     goBtn.addEventListener("click", onGo);
     againBtn.addEventListener("click", onAgain);
     micBtn.addEventListener("click", onMic);
-    voiceDone.addEventListener("click", onDone);
+    voiceDone.addEventListener("click", startGeneration);
 
     /* ---------------- cleanup ---------------- */
     return () => {
@@ -1085,7 +1134,8 @@ export default function CreateStudio() {
       goBtn.removeEventListener("click", onGo);
       againBtn.removeEventListener("click", onAgain);
       micBtn.removeEventListener("click", onMic);
-      voiceDone.removeEventListener("click", onDone);
+      voiceDone.removeEventListener("click", startGeneration);
+      clearTimeout(navTimer);
       if (mediaRec?.state === "recording") mediaRec.stop();
       stream?.getTracks().forEach((t) => t.stop());
       landmarker?.close();
@@ -1204,15 +1254,43 @@ export default function CreateStudio() {
           <p data-fc="gotIt" className={styles.gotIt}>
             That&apos;s a Wrap!
           </p>
-          <button data-fc="voiceDone" className={styles.primaryBtn}>
-            Generate My Fashion Video!
+          <p data-fc="wrapSub" className={styles.wrapSub}>
+            Generating your fashion video&hellip;
+          </p>
+          <div
+            data-fc="wrapSpinner"
+            className={styles.spinner}
+            role="status"
+            aria-label="Generating your fashion video"
+          />
+          <button
+            data-fc="voiceDone"
+            className={styles.primaryBtn}
+            style={{ display: "none" }}
+          >
+            Try again
           </button>
         </div>
       </div>
 
-      <div data-fc="coverage" className={styles.coverage} aria-hidden="true">
+      <div
+        data-fc="coverage"
+        data-stage="body"
+        className={styles.coverage}
+        aria-hidden="true"
+      >
+        <div className={styles.closeupSparkles} aria-hidden="true">
+          <span className={styles.sparkle} />
+          <span className={styles.sparkle} />
+          <span className={styles.sparkle} />
+          <span className={styles.sparkle} />
+          <span className={styles.sparkle} />
+          <span className={styles.sparkle} />
+          <span className={styles.sparkle} />
+          <span className={styles.sparkle} />
+        </div>
         <h2>Please bring your full body into the webcam</h2>
-        <p>step back until your head and feet are both in frame</p>
+        <p>step back until your head and knees are both in frame</p>
       </div>
 
       <div data-fc="ready" className={styles.ready}>

@@ -5,6 +5,9 @@ import {
   ensureFashionVideo,
   getFashionVideoMedia,
 } from "@/app/actions/content";
+// Reuse the capture studio's "showtime" overlay styles (sweeping spotlights +
+// premiere searchlights) so playback matches the webcam capture look exactly.
+import studio from "./CreateStudio.module.css";
 
 const POLL_INTERVAL_MS = 5000;
 // D-ID queues jobs (several minutes on trial plans) on top of the runway
@@ -19,20 +22,28 @@ const MAX_ATTEMPTS = 150;
  * re-fired on each poll: the backend endpoint is idempotent and locked, so a
  * repeat call is a cheap no-op ("exists"/"in_progress"/"images_pending") until
  * the images are ready and the render can actually start.
+ *
+ * While the finished video is actually playing, the page dims into "showtime":
+ * dark mode is forced and the same sweeping spotlights / premiere searchlights
+ * from the capture flow sweep over it. Pausing or ending restores the page.
  */
 export default function VideoFilm({
   id,
   initialVideo,
+  readOnly = false,
 }: {
   id: string;
   initialVideo: string | null;
+  /** Public/shared view: never triggers or polls generation (auth-only). */
+  readOnly?: boolean;
 }) {
   const [video, setVideo] = useState<string | null>(initialVideo ?? null);
   const [failed, setFailed] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const started = useRef(false);
 
   useEffect(() => {
-    if (video || started.current) return;
+    if (readOnly || video || started.current) return;
     started.current = true;
 
     let cancelled = false;
@@ -65,17 +76,54 @@ export default function VideoFilm({
     return () => {
       cancelled = true;
     };
-  }, [id, video]);
+  }, [id, video, readOnly]);
+
+  // Force dark mode during playback and restore the user's real preference when
+  // it stops / unmounts. We never touch localStorage, so the persisted choice
+  // is untouched — mirrors CreateStudio's enter/restore theme logic.
+  useEffect(() => {
+    if (!playing) return;
+    const rootEl = document.documentElement;
+    const prevDark = rootEl.classList.contains("dark");
+    rootEl.classList.add("dark");
+    return () => {
+      rootEl.classList.toggle("dark", prevDark);
+    };
+  }, [playing]);
 
   if (video) {
+    const show = playing ? "true" : "false";
     return (
       <div className="mt-8">
-        <video
-          src={video}
-          controls
-          playsInline
-          className="mx-auto aspect-[9/16] w-full max-w-xs rounded-2xl border border-border bg-black object-cover"
-        />
+        {/* Full-viewport premiere searchlights, only while the film plays. */}
+        <div className={studio.skylights} data-show={show} aria-hidden="true">
+          <span className={`${studio.beam} ${studio.beamL}`} />
+          <span className={`${studio.beam} ${studio.beamC}`} />
+          <span className={`${studio.beam} ${studio.beamR}`} />
+        </div>
+
+        <div className="relative mx-auto w-full max-w-xs overflow-hidden rounded-2xl">
+          <video
+            src={video}
+            controls
+            playsInline
+            onPlay={() => setPlaying(true)}
+            onPause={() => setPlaying(false)}
+            onEnded={() => setPlaying(false)}
+            className="block aspect-[9/16] w-full rounded-2xl border border-border bg-black object-cover"
+          />
+
+          {/* Sweeping colored spotlights over the video (screen-blended). */}
+          <div
+            className={studio.spotlights}
+            data-show={show}
+            aria-hidden="true"
+          >
+            <div className={`${studio.spot} ${studio.spot1}`} />
+            <div className={`${studio.spot} ${studio.spot2}`} />
+            <div className={`${studio.spot} ${studio.spot3}`} />
+          </div>
+        </div>
       </div>
     );
   }
@@ -84,7 +132,11 @@ export default function VideoFilm({
     <div className="mt-8">
       <div className="mx-auto flex aspect-[9/16] w-full max-w-xs items-center justify-center rounded-2xl border border-border bg-muted text-center">
         <div className="px-6">
-          {failed ? (
+          {readOnly ? (
+            <p className="text-sm text-muted-foreground">
+              This video isn&apos;t ready yet. Check back in a bit.
+            </p>
+          ) : failed ? (
             <p className="text-sm text-muted-foreground">
               We couldn&apos;t produce your video this time. Try refreshing in a
               bit.
