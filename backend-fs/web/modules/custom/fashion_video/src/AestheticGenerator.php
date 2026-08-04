@@ -33,6 +33,14 @@ suit, 1990s grunge, Y2K, cottagecore, normcore, etc.). Then suggest one fashion
 accessory that would complete the look, and two or three fun, on-theme props
 (e.g. a hippie -> lava lamp, peace-sign necklace; a farmer -> a cow, a pitchfork).
 
+To help the stylist keep an AI restyle faithful to the person, also report two
+practical grooming details (styling only, not identity):
+- facial_hair: what facial hair is actually visible, e.g. "none", "light
+  stubble", "full beard", "moustache", "goatee". Use "none" whenever the face is
+  clean-shaven or has no facial hair.
+- presentation: whether the overall hair/styling reads as "feminine",
+  "masculine", or "androgynous".
+
 Keep it light and complimentary. Return your answer using the provided schema.
 TXT;
 
@@ -47,7 +55,7 @@ TXT;
    * @param array<int, array{0: string, 1: string}> $images
    *   A list of [binary, extension] pairs (extension: jpg|png|webp).
    *
-   * @return array{aesthetic: string, era: string, description: string, accessory: string, props: array<int, string>}|null
+   * @return array{aesthetic: string, era: string, description: string, accessory: string, props: array<int, string>, facial_hair: string, presentation: string}|null
    *   The analysis, or NULL if no API key is configured or the call failed.
    */
   public function analyze(array $images): ?array {
@@ -114,8 +122,13 @@ TXT;
               'type' => 'array',
               'items' => ['type' => 'string'],
             ],
+            'facial_hair' => ['type' => 'string'],
+            'presentation' => [
+              'type' => 'string',
+              'enum' => ['feminine', 'masculine', 'androgynous'],
+            ],
           ],
-          'required' => ['aesthetic', 'era', 'description', 'accessory', 'props'],
+          'required' => ['aesthetic', 'era', 'description', 'accessory', 'props', 'facial_hair', 'presentation'],
         ],
       ],
     ];
@@ -142,6 +155,8 @@ TXT;
       'description' => (string) ($parsed['description'] ?? ''),
       'accessory' => (string) ($parsed['accessory'] ?? ''),
       'props' => $props,
+      'facial_hair' => (string) ($parsed['facial_hair'] ?? ''),
+      'presentation' => (string) ($parsed['presentation'] ?? ''),
     ];
   }
 

@@ -39,7 +39,7 @@ final class ImageGenerator {
   /**
    * Builds three scene prompts from an aesthetic analysis.
    *
-   * @param array{aesthetic?: string, era?: string, description?: string, accessory?: string, props?: array<int, string>} $analysis
+   * @param array{aesthetic?: string, era?: string, description?: string, accessory?: string, props?: array<int, string>, facial_hair?: string, presentation?: string} $analysis
    *   The stored aesthetic analysis.
    *
    * @return array<int, string>
@@ -55,13 +55,10 @@ final class ImageGenerator {
     ));
     $propList = $props ? implode(', ', $props) : 'absurd themed props';
 
-    // Match the reference person's facial hair rather than inventing or removing
-    // it — applied to every look so beards/stubble/clean-shaven stay consistent.
-    $facialHair = ' Match the reference photo\'s FACIAL HAIR exactly: if they '
-      . 'have a beard, moustache, goatee or stubble, give them the same '
-      . 'facial-hair shape, length AND COLOR — the facial hair must be the same '
-      . 'natural color it is in the reference photo; if they are clean-shaven, '
-      . 'keep them clean-shaven.';
+    // Match (or, for a clean-shaven subject, explicitly forbid) facial hair so
+    // beards/stubble stay consistent and feminine subjects don't get a beard.
+    $facialHair = $this->facialHairInstruction($analysis);
+    $isFeminine = strtolower(trim((string) ($analysis['presentation'] ?? ''))) === 'feminine';
 
     $base = sprintf(
       'Ultra-glossy high-fashion editorial photo, an intentionally absurd and '
@@ -98,18 +95,40 @@ final class ImageGenerator {
       'a closely SHAVED head, either fully buzzed or with a bold geometric '
       . 'pattern shaved into the stubble',
     ];
-    $hair = [
-      ' For the hair, stay CLOSE to the hairstyle in the reference photo — the '
-      . 'same overall cut, length and color — just lightly restyled and polished '
-      . 'for the runway; do NOT add a big wig or voluminous styling. This is the '
-      . 'SAME hairstyle used in the matching beauty-closeup portrait, so keep them '
-      . 'consistent.',
-      ' Give them a deliberately UNDERSTATED, decidedly NOT-big hairstyle — sleek '
-      . 'and flat (severely slicked-back, a tiny neat bun, or plastered-down) — '
-      . 'played completely straight so it reads as quietly funny.',
-      ' Give them ' . $wildStyles[array_rand($wildStyles)] . ', played completely '
-      . 'deadpan and serious.',
-    ];
+    // "Close to the reference" direction, reused for the images that keep the
+    // subject's own hairstyle.
+    $keepHair = ' For the hair, stay CLOSE to the hairstyle in the reference '
+      . 'photo — the same overall cut, length and color — just lightly restyled '
+      . 'and polished for the runway; do NOT add a big wig or voluminous styling. '
+      . 'This is the SAME hairstyle used in the matching beauty-closeup portrait, '
+      . 'so keep them consistent.';
+    $keepHairRestyled = ' For the hair, keep the SAME hairstyle as the reference '
+      . 'photo — the same overall cut and length — elegantly restyled and polished '
+      . 'for the runway; do NOT swap it for a big wig or a radically different cut.';
+
+    if ($isFeminine) {
+      // Feminine presentation: keep her own hairstyle in at least two of the
+      // three looks (a bold dyed color may still land on one of them below), and
+      // reserve only the third for a wild avant-garde cut.
+      $hair = [
+        $keepHair,
+        $keepHairRestyled,
+        ' Give them ' . $wildStyles[array_rand($wildStyles)] . ', played '
+        . 'completely deadpan and serious.',
+      ];
+    }
+    else {
+      // Otherwise: one close to reference, one deliberately understated, one wild.
+      $hair = [
+        $keepHair,
+        ' Give them a deliberately UNDERSTATED, decidedly NOT-big hairstyle — '
+        . 'sleek and flat (severely slicked-back, a tiny neat bun, or '
+        . 'plastered-down) — played completely straight so it reads as quietly '
+        . 'funny.',
+        ' Give them ' . $wildStyles[array_rand($wildStyles)] . ', played '
+        . 'completely deadpan and serious.',
+      ];
+    }
 
     $finish = ' Dramatic runway lighting, cinematic, hyper-detailed, luxury '
       . 'magazine quality. Do NOT render any text, letters, words, numbers, '
@@ -202,7 +221,7 @@ final class ImageGenerator {
    * Restyles the captured closeup into the same aesthetic as the runway looks
    * while copying the person's expression and gently sculpting the face.
    *
-   * @param array{aesthetic?: string, era?: string, description?: string, accessory?: string, props?: array<int, string>} $analysis
+   * @param array{aesthetic?: string, era?: string, description?: string, accessory?: string, props?: array<int, string>, facial_hair?: string, presentation?: string} $analysis
    *   The stored aesthetic analysis.
    */
   public function buildCloseupPrompt(array $analysis): string {
@@ -220,9 +239,7 @@ final class ImageGenerator {
       'Ultra-glossy high-fashion BEAUTY CLOSEUP portrait, an intentionally absurd '
       . 'and humorous parody of an over-produced Balenciaga campaign — deadpan '
       . 'serious yet ridiculous. Keep the SAME person as the reference image and '
-      . 'copy their facial EXPRESSION from the reference. Match their FACIAL HAIR '
-      . 'exactly — same beard/moustache/goatee/stubble shape, length and color, '
-      . 'or keep them clean-shaven if they have none. For the HAIR, keep it clearly '
+      . 'copy their facial EXPRESSION from the reference.%s For the HAIR, keep it clearly '
       . 'recognizable as the same person — similar cut, length and natural color — '
       . 'but you may deviate a little more than a plain copy and STYLE IT UP for the '
       . 'runway with extra polish, shape and editorial flair (still no giant wig or '
@@ -236,10 +253,50 @@ final class ImageGenerator {
       . 'lighting, cinematic, hyper-detailed, luxury magazine quality. Do NOT '
       . 'render any text, letters, words, numbers, captions, watermarks, logos, '
       . 'or signage anywhere in the image.',
+      $this->facialHairInstruction($analysis),
       $propsHint,
       $aesthetic,
       $accessory !== '' ? sprintf(', accessorized with %s', $accessory) : '',
     );
+  }
+
+  /**
+   * Builds the facial-hair instruction for a prompt from the analysis.
+   *
+   * Uses the analyzed `facial_hair` value to either (a) explicitly forbid facial
+   * hair for a clean-shaven subject — so feminine subjects don't get a beard —
+   * (b) match a specific detected style and its natural color, or (c) fall back
+   * to a generic "match the reference" clause when the analysis predates this
+   * field.
+   *
+   * @param array{facial_hair?: string} $analysis
+   *   The stored aesthetic analysis.
+   */
+  private function facialHairInstruction(array $analysis): string {
+    $facial = strtolower(trim((string) ($analysis['facial_hair'] ?? '')));
+
+    $none = ['none', 'no', 'no facial hair', 'clean-shaven', 'clean shaven', 'none visible'];
+    if (in_array($facial, $none, TRUE)) {
+      return ' The subject has NO facial hair — render the face completely '
+        . 'clean-shaven with absolutely no beard, moustache, goatee, sideburns '
+        . 'or stubble, and do NOT add any facial hair.';
+    }
+
+    if ($facial !== '') {
+      return sprintf(
+        ' Match the reference photo\'s FACIAL HAIR exactly: they have %s — keep '
+        . 'the same shape, length AND natural COLOR, and do not dye or restyle '
+        . 'the facial hair.',
+        $facial,
+      );
+    }
+
+    // Analysis has no facial-hair signal (older node): fall back to the generic
+    // conditional so beards/stubble/clean-shaven all stay as-is.
+    return ' Match the reference photo\'s FACIAL HAIR exactly: if they have a '
+      . 'beard, moustache, goatee or stubble, keep the same shape, length AND '
+      . 'natural COLOR; if they have none, keep the face completely clean-shaven '
+      . 'and do NOT add any facial hair.';
   }
 
   /**
