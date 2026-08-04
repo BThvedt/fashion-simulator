@@ -52,15 +52,16 @@ final class VideoAssembler {
    *   begins (3.5 + 0.25 = 3.75s in the nominal case).
    * - BLACK_GAP_SEC: how long the screen stays fully dark.
    * - FINAL_FADE_IN_SEC: fade-in of the closing still (applause starts once in).
-   * - SHOW_END_FADE_SEC: master (song) fade at the very end, matched to the
-   *   applause fade-out.
+   * - SHOW_END_FADE_SEC: master (song) fade at the very end. Ends on the same
+   *   beat as the applause but starts a touch earlier so the song tapers out
+   *   more gently than a hard 0.5s cut.
    */
   private const TALK_FADE_START_SEC = 3.5;
   private const TALK_FADE_SEC = 0.5;
   private const WORDS_AFTER_FADE_SEC = 0.25;
   private const BLACK_GAP_SEC = 0.5;
   private const FINAL_FADE_IN_SEC = 0.5;
-  private const SHOW_END_FADE_SEC = 0.5;
+  private const SHOW_END_FADE_SEC = 0.75;
 
   /**
    * SFX layer levels (0..1) and shaping. These mix on top of the balanced
