@@ -42,11 +42,25 @@ final class VideoAssembler {
   private const XFADE_SEC = 1.0;
   private const FLASH_FADE_SEC = 0.4;
   /**
-   * Freeze-frame hold on the lip-sync's last frame before the closing still
-   * dissolves in. Delays the fade-to-final-image so it starts after the speech
-   * ends rather than over it.
+   * Closing sequence timing. The lip-sync fades to black, holds on black, then
+   * the final still fades in; applause + song fade out together at the very end.
+   *
+   * - TALK_FADE_START_SEC: when the lip-sync begins fading to black (clamped to
+   *   the actual speech end so a longer clip is never cut short).
+   * - TALK_FADE_SEC: fade-to-black duration.
+   * - WORDS_AFTER_FADE_SEC: the "words" sting starts this long after the fade
+   *   begins (3.5 + 0.25 = 3.75s in the nominal case).
+   * - BLACK_GAP_SEC: how long the screen stays fully dark.
+   * - FINAL_FADE_IN_SEC: fade-in of the closing still (applause starts once in).
+   * - SHOW_END_FADE_SEC: master (song) fade at the very end, matched to the
+   *   applause fade-out.
    */
-  private const TALK_TAIL_HOLD_SEC = 1.0;
+  private const TALK_FADE_START_SEC = 3.5;
+  private const TALK_FADE_SEC = 0.5;
+  private const WORDS_AFTER_FADE_SEC = 0.25;
+  private const BLACK_GAP_SEC = 0.5;
+  private const FINAL_FADE_IN_SEC = 0.5;
+  private const SHOW_END_FADE_SEC = 0.5;
 
   /**
    * SFX layer levels (0..1) and shaping. These mix on top of the balanced
@@ -56,15 +70,9 @@ final class VideoAssembler {
   private const SFX_FLASH_VOLUME = 0.7;
   private const SFX_WORDS_VOLUME = 0.85;
   private const SFX_APPLAUSE_VOLUME = 0.55;
-  /**
-   * When the "words" sting finishes, relative to the lip-sync's end. Positive =
-   * ends after the lip-sync; negative = ends before it (so the sting overlaps
-   * and plays under the tail of the lip-sync).
-   */
-  private const SFX_WORDS_TAIL_SEC = -1.5;
   private const SFX_CROWD_FADE_SEC = 0.3;
-  private const SFX_APPLAUSE_FADE_IN_SEC = 0.6;
-  private const SFX_APPLAUSE_FADE_OUT_SEC = 1.0;
+  private const SFX_APPLAUSE_FADE_IN_SEC = 0.3;
+  private const SFX_APPLAUSE_FADE_OUT_SEC = 0.5;
 
   /** Hard ceiling on a single ffmpeg run. */
   private const FFMPEG_TIMEOUT = 180;
@@ -268,12 +276,14 @@ final class VideoAssembler {
    *   2. the motion clip (generated from still B)
    *   3. a white camera-flash
    *   4. fade-from-white into still B (brief Ken Burns hold)
-   *   5. the lip-sync talking clip (carries the voice)
-   *   6. fade into a Ken Burns zoom of still C
+   *   5. the lip-sync talking clip (carries the voice), which fades to black
+   *   6. a brief fully-dark hold
+   *   7. fade-in from black into a Ken Burns zoom of still C
    *
    * The chosen song plays underneath the whole thing, ducked under the voice
-   * during the lip-sync segment and faded out at the end. Falls back to
-   * ::assembleTalkingClip() if the motion clip can't be prepared.
+   * during the lip-sync segment and faded out at the very end together with the
+   * applause. Falls back to ::assembleTalkingClip() if the motion clip can't be
+   * prepared.
    *
    * @param string $talkBytes
    *   Raw MP4 bytes of the lip-sync clip (carries the voice track).
@@ -331,46 +341,63 @@ final class VideoAssembler {
       $motionDur = $this->probeDuration($motionPath) ?? 5.0;
       $talkDur = $this->probeDuration($talkPath) ?? 8.0;
 
+      // Closing sequence timing (relative to the lip-sync start). The lip-sync
+      // fades to black, holds on black, then the final still fades in; applause
+      // (and the song) fade out together right at the end.
+      //   fadeStart .............. lip-sync begins fading to black
+      //   fadeStart + fade ....... fully black (end of talk segment)
+      //   + BLACK_GAP ............ dark hold, then the final still fades in
+      //   + FINAL_FADE_IN ........ still fully in; applause starts
+      // The fade start is clamped to the actual speech end so a lip-sync clip
+      // longer than the nominal window is never cut off mid-word.
+      $fadeStart = max(self::TALK_FADE_START_SEC, $talkDur);
+      $talkSegLen = $fadeStart + self::TALK_FADE_SEC;
+      $tailHold = $talkSegLen - $talkDur;
+      // The closing still lasts long enough to cover its fade-in plus the full
+      // applause (SEGMENT_SEC), which lands the video end exactly on applause end.
+      $segCLen = self::FINAL_FADE_IN_SEC + self::SEGMENT_SEC;
+
       // Build the ordered, canvas-normalized video segments.
       $segA = $dir . '/seg_a.mp4';
       $segMotion = $dir . '/seg_motion.mp4';
       $segFlash = $dir . '/seg_flash.mp4';
       $segB = $dir . '/seg_b.mp4';
       $segTalk = $dir . '/seg_talk.mp4';
+      $segBlack = $dir . '/seg_black.mp4';
       $segC = $dir . '/seg_c.mp4';
 
       if (
         !$this->makePanClip($stillAPath, $segA)
         || !$this->normalizeTalkVideo($motionPath, $segMotion)
-        || !$this->makeWhiteClip($segFlash, self::FLASH_SEC)
+        || !$this->makeSolidClip($segFlash, self::FLASH_SEC, 'white')
         || !$this->makePanClip($stillBPath, $segB, self::STILLB_SEC, 'white', self::FLASH_FADE_SEC)
-        // Hold the lip-sync's last frame briefly so the closing still dissolves
-        // in *after* the speech ends, not over it.
-        || !$this->normalizeTalkVideo($talkPath, $segTalk, self::TALK_TAIL_HOLD_SEC)
-        // No black fade-in: the closing still is dissolved into via xfade below.
-        || !$this->makePanClip($stillCPath, $segC)
+        // Lip-sync padded to the fade window and faded to black at the end.
+        || !$this->normalizeTalkVideo($talkPath, $segTalk, $tailHold, $fadeStart, self::TALK_FADE_SEC)
+        // A brief fully-dark hold between the lip-sync and the closing still.
+        || !$this->makeSolidClip($segBlack, self::BLACK_GAP_SEC, 'black')
+        // Closing still fades in from black; applause begins once it's fully in.
+        || !$this->makePanClip($stillCPath, $segC, $segCLen, 'black', self::FINAL_FADE_IN_SEC)
       ) {
         return NULL;
       }
 
-      $segments = [$segA, $segMotion, $segFlash, $segB, $segTalk, $segC];
+      $segments = [$segA, $segMotion, $segFlash, $segB, $segTalk, $segBlack, $segC];
 
       // The voice must start when the lip-sync segment does.
       $voiceOffset = self::SEGMENT_SEC + $motionDur + self::FLASH_SEC + self::STILLB_SEC;
-      // The lip-sync segment now includes a freeze-frame tail hold; the closing
-      // still crossfades in over that held tail, so the dissolve begins after
-      // the speech ends (talkEnd + hold - fade) rather than over the speech.
-      $heldTalkEnd = $voiceOffset + $talkDur + self::TALK_TAIL_HOLD_SEC;
-      $crossfadeOffset = $heldTalkEnd - self::XFADE_SEC;
-      $total = $heldTalkEnd + self::SEGMENT_SEC - self::XFADE_SEC;
+      $finalStart = $voiceOffset + $talkSegLen + self::BLACK_GAP_SEC;
+      $applauseStart = $finalStart + self::FINAL_FADE_IN_SEC;
+      // "words" sting starts shortly after the lip-sync begins fading out.
+      $wordsStart = $voiceOffset + $fadeStart + self::WORDS_AFTER_FADE_SEC;
+      $total = $finalStart + $segCLen;
       $voiceOffsetMs = (int) round($voiceOffset * 1000);
 
-      // Position each SFX clip on the montage timeline. Applause tracks the
-      // crossfade start so it swells in as the closing still appears.
-      $sfxCues = $this->buildSfxCues($dir, $sfx, $motionDur, $talkDur, $voiceOffset, $crossfadeOffset);
+      // Position each SFX clip on the montage timeline.
+      $sfxCues = $this->buildSfxCues($dir, $sfx, $motionDur, $wordsStart, $applauseStart);
 
       $outPath = $dir . '/final.mp4';
-      $command = $this->buildMontageCommand($segments, $talkPath, $songPath, $outPath, $voiceOffsetMs, $total, $sfxCues, $crossfadeOffset);
+      // Plain concat (no crossfade); the song/master fade matches the applause.
+      $command = $this->buildMontageCommand($segments, $talkPath, $songPath, $outPath, $voiceOffsetMs, $total, $sfxCues, NULL, self::SHOW_END_FADE_SEC);
       if (!$this->runFfmpeg($command, self::FFMPEG_TIMEOUT)) {
         return NULL;
       }
@@ -393,8 +420,9 @@ final class VideoAssembler {
    * Cue points (t=0 is the start of the whole video):
    *  - crowd:    over the motion clip           [SEGMENT_SEC .. +motionDur]
    *  - flash:    on the white camera-flash beat  (SEGMENT_SEC + motionDur)
-   *  - words:    ends SFX_WORDS_TAIL_SEC after the lip-sync ends
-   *  - applause: over the closing still (from the crossfade in), fading in/out
+   *  - words:    as the lip-sync fades out ($wordsStart), plays out naturally
+   *  - applause: as the closing still finishes fading in ($applauseStart),
+   *              fading in quickly then out at the very end
    *
    * Each SFX blob is written to a temp file in $dir. Categories with no clip are
    * skipped. Returns a list of cue arrays consumed by ::buildMontageCommand().
@@ -403,17 +431,15 @@ final class VideoAssembler {
    *
    * @return array<int, array{path: string, delayMs: int, volume: float, loop: bool, trim: float|null, fadeIn: float, fadeOut: float}>
    */
-  private function buildSfxCues(string $dir, array $sfx, float $motionDur, float $talkDur, float $voiceOffset, float $crossfadeOffset): array {
-    $talkEnd = $voiceOffset + $talkDur;
-
+  private function buildSfxCues(string $dir, array $sfx, float $motionDur, float $wordsStart, float $applauseStart): array {
     // [category, delaySec, volume, loop, trimSec|null, fadeIn, fadeOut].
-    // `words` gets a placeholder delay; it depends on the clip's own length and
-    // is finalized below once probed.
     $specs = [
       'crowd' => [self::SEGMENT_SEC, self::SFX_CROWD_VOLUME, TRUE, $motionDur, self::SFX_CROWD_FADE_SEC, self::SFX_CROWD_FADE_SEC],
       'flash' => [self::SEGMENT_SEC + $motionDur, self::SFX_FLASH_VOLUME, FALSE, NULL, 0.0, 0.0],
-      'words' => [$talkEnd, self::SFX_WORDS_VOLUME, FALSE, NULL, 0.0, 0.0],
-      'applause' => [$crossfadeOffset, self::SFX_APPLAUSE_VOLUME, TRUE, self::SEGMENT_SEC, self::SFX_APPLAUSE_FADE_IN_SEC, self::SFX_APPLAUSE_FADE_OUT_SEC],
+      // Starts as the lip-sync fades out and plays through naturally (no trim).
+      'words' => [$wordsStart, self::SFX_WORDS_VOLUME, FALSE, NULL, 0.0, 0.0],
+      // Swells in as the closing still appears, then fades out at the very end.
+      'applause' => [$applauseStart, self::SFX_APPLAUSE_VOLUME, TRUE, self::SEGMENT_SEC, self::SFX_APPLAUSE_FADE_IN_SEC, self::SFX_APPLAUSE_FADE_OUT_SEC],
     ];
 
     $cues = [];
@@ -427,13 +453,6 @@ final class VideoAssembler {
       $path = $dir . '/sfx_' . $category . '.' . $safeExt;
       if (file_put_contents($path, $bytes) === FALSE) {
         continue;
-      }
-
-      // "words" must *end* SFX_WORDS_TAIL_SEC after the lip-sync, so back its
-      // start off by its own duration.
-      if ($category === 'words') {
-        $wordsDur = $this->probeDuration($path) ?? 1.5;
-        $delaySec = max(0.0, $talkEnd + self::SFX_WORDS_TAIL_SEC - $wordsDur);
       }
 
       $cues[] = [
@@ -484,12 +503,14 @@ final class VideoAssembler {
   }
 
   /**
-   * Renders a solid-white clip (video only) — used as the camera-flash beat.
+   * Renders a solid-color clip (video only) — e.g. white for the camera-flash
+   * beat, black for the dark hold before the closing still.
    */
-  private function makeWhiteClip(string $outPath, float $seconds): bool {
+  private function makeSolidClip(string $outPath, float $seconds, string $color = 'white'): bool {
+    $safeColor = preg_replace('/[^a-z0-9#]/i', '', $color) ?: 'white';
     return $this->runFfmpeg([
       'ffmpeg', '-y', '-f', 'lavfi', '-i',
-      sprintf('color=c=white:s=%dx%d:r=%d:d=%.3f', self::WIDTH, self::HEIGHT, self::FPS, $seconds),
+      sprintf('color=c=%s:s=%dx%d:r=%d:d=%.3f', $safeColor, self::WIDTH, self::HEIGHT, self::FPS, $seconds),
       '-vf', 'setsar=1,format=yuv420p',
       '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-an',
       $outPath,
@@ -501,9 +522,13 @@ final class VideoAssembler {
    *
    * @param float $tailHoldSec
    *   Optional freeze-frame hold appended to the end (clones the last frame),
-   *   used so the closing still can dissolve in *after* the speech finishes.
+   *   used to pad the clip out to the desired segment length.
+   * @param float|null $fadeOutStart
+   *   When set, fade the video to black starting at this offset (seconds).
+   * @param float $fadeOutDur
+   *   Fade-to-black duration in seconds (ignored when $fadeOutStart is NULL).
    */
-  private function normalizeTalkVideo(string $clipPath, string $outPath, float $tailHoldSec = 0.0): bool {
+  private function normalizeTalkVideo(string $clipPath, string $outPath, float $tailHoldSec = 0.0, ?float $fadeOutStart = NULL, float $fadeOutDur = 0.0): bool {
     $scale = sprintf(
       'scale=%d:%d:force_original_aspect_ratio=decrease,'
       . 'pad=%d:%d:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=%d,format=yuv420p',
@@ -511,6 +536,9 @@ final class VideoAssembler {
     );
     if ($tailHoldSec > 0) {
       $scale .= sprintf(',tpad=stop_mode=clone:stop_duration=%.3f', $tailHoldSec);
+    }
+    if ($fadeOutStart !== NULL && $fadeOutDur > 0) {
+      $scale .= sprintf(',fade=t=out:st=%.3f:d=%.3f', $fadeOutStart, $fadeOutDur);
     }
 
     return $this->runFfmpeg([
@@ -529,7 +557,8 @@ final class VideoAssembler {
    *
    * @return string[]
    */
-  private function buildMontageCommand(array $segments, string $clipPath, ?string $songPath, string $outPath, int $introMs, float $total, array $sfxCues = [], ?float $crossfadeOffset = NULL): array {
+  private function buildMontageCommand(array $segments, string $clipPath, ?string $songPath, string $outPath, int $introMs, float $total, array $sfxCues = [], ?float $crossfadeOffset = NULL, ?float $masterFadeSec = NULL): array {
+    $masterFade = $masterFadeSec ?? self::FADE_OUT_SEC;
     $inputs = [];
     foreach ($segments as $seg) {
       $inputs[] = '-i';
@@ -595,7 +624,7 @@ final class VideoAssembler {
       );
     }
 
-    $fadeStart = max(0.0, $total - self::FADE_OUT_SEC);
+    $fadeStart = max(0.0, $total - $masterFade);
     $hasSfx = $sfxInputs !== [];
 
     // Voice (+ ducked song) bed. With SFX to layer it stops at [bed] so the
@@ -609,7 +638,7 @@ final class VideoAssembler {
         . '[voice_main][duck]amix=inputs=2:duration=longest:dropout_transition=0';
       $bed .= $hasSfx
         ? $bedOut
-        : sprintf(',afade=t=out:st=%.3f:d=%.3f[aout]', $fadeStart, self::FADE_OUT_SEC);
+        : sprintf(',afade=t=out:st=%.3f:d=%.3f[aout]', $fadeStart, $masterFade);
     }
     else {
       // No song: place the voice at the talk offset over padded silence.
@@ -644,7 +673,7 @@ final class VideoAssembler {
       $filter .= ';' . implode('', $mixLabels)
         . sprintf(
           'amix=inputs=%d:normalize=0:duration=longest:dropout_transition=0,afade=t=out:st=%.3f:d=%.3f[aout]',
-          count($mixLabels), $fadeStart, self::FADE_OUT_SEC
+          count($mixLabels), $fadeStart, $masterFade
         );
     }
 
