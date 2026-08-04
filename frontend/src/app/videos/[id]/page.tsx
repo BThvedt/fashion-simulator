@@ -3,6 +3,7 @@ import { getToken } from "@/lib/auth";
 import { drupalFetch } from "@/lib/drupal";
 import AiRunway from "@/components/AiRunway";
 import VideoFilm from "@/components/VideoFilm";
+import RegenerateControls from "@/components/RegenerateControls";
 import EditableTitle from "@/components/EditableTitle";
 import ShareControls from "@/components/ShareControls";
 import DeleteVideo from "@/components/DeleteVideo";
@@ -24,6 +25,8 @@ interface FashionVideoMedia {
   aiImages: string[];
   analysis: StyleAnalysis | null;
   video: string | null;
+  motionClips: string[];
+  canRegenerate: boolean;
   shared: boolean;
   token: string | null;
 }
@@ -54,6 +57,8 @@ export default async function VideoPage({
   const aiImages = data.aiImages ?? [];
   const analysis = data.analysis ?? null;
   const video = data.video ?? null;
+  const motionClips = data.motionClips ?? [];
+  const canRegenerate = data.canRegenerate ?? false;
   const shared = data.shared ?? false;
   const token = data.token ?? null;
   // Title is stored with seconds (e.g. "2026-07-20 16:19:32"); display to the
@@ -137,6 +142,10 @@ export default async function VideoPage({
 
         {poses.length > 0 && (
           <AiRunway id={id} poses={poses} initialImages={aiImages} />
+        )}
+
+        {canRegenerate && (
+          <RegenerateControls id={id} motionClips={motionClips} />
         )}
 
         <DeleteVideo id={id} />

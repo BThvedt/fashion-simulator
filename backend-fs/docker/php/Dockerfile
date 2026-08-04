@@ -36,3 +36,11 @@ RUN { \
     } > /usr/local/etc/php/conf.d/drupal-runtime.ini
 
 WORKDIR /var/www/html
+
+# Ensure the bind-mounted runtime-writable dirs (public files + private
+# fallback) are owned by www-data on start, so PHP-FPM can create the
+# directories Drupal writes into. See the script for details.
+COPY docker/php/entrypoint.sh /usr/local/bin/fs-entrypoint.sh
+RUN chmod +x /usr/local/bin/fs-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/fs-entrypoint.sh"]
+CMD ["php-fpm"]
