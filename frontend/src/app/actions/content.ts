@@ -282,6 +282,28 @@ export async function resetFashionVideo(id: string): Promise<boolean> {
 }
 
 /**
+ * Debug/admin tool: replaces the stored voice recording with a freshly
+ * recorded clip (a base64 audio data URL), for when the original take was
+ * bad/corrupt/empty — a likely cause of a talking-head provider rejecting the
+ * audio outright. Also clears the generated video/clips so the next
+ * generation attempt uses the new recording. Returns whether it succeeded.
+ */
+export async function replaceFashionVoice(
+  id: string,
+  voice: string
+): Promise<boolean> {
+  try {
+    const res = await drupalFetch(`/fashion-video/${id}/replace-voice`, {
+      method: "POST",
+      body: JSON.stringify({ voice }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Debug/admin experiment: advances the fal.ai (Kling) motion-clip job for a
  * node by one step and returns the current status token ("processing", "done",
  * "failed", "images_pending", "not_configured", or "error"). The endpoint is a

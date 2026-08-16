@@ -1045,7 +1045,13 @@ export default function CreateStudio() {
       loopRAF = requestAnimationFrame(loop);
     };
     const onAgain = () => resetAll();
-    const onMic = () => (recording ? stopRec() : startRec());
+    // Pressing the mic starts a recording; while one is in progress, further
+    // presses are ignored so the clip always runs the full REC_SECONDS —
+    // only the ring timer in animateRing() is allowed to end it early.
+    const onMic = () => {
+      if (recording) return;
+      startRec();
+    };
     let generating = false;
     let navTimer = 0;
 

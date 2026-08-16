@@ -3,9 +3,24 @@
 import { useState } from "react";
 import {
   generateFashionMotion,
+  replaceFashionVoice,
   resetFashionImages,
   resetFashionVideo,
 } from "@/app/actions/content";
+import { polishVoice } from "@/lib/voiceFx";
+
+/** Reads a Blob into a base64 data URL (e.g. "data:audio/webm;base64,..."). */
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+/** Matches the capture flow's recording length (see CreateStudio.tsx). */
+const REC_SECONDS = 3;
 
 /**
  * Small admin/debug panel at the bottom of a fashion video page. Lets an admin
@@ -26,8 +41,12 @@ export default function RegenerateControls({
   id: string;
   motionClips?: string[];
 }) {
-  const [busy, setBusy] = useState<null | "images" | "video" | "motion">(null);
+  const [busy, setBusy] = useState<null | "images" | "video" | "motion" | "voice">(
+    null
+  );
   const [motionMsg, setMotionMsg] = useState<string | null>(null);
+  const [voiceMsg, setVoiceMsg] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
 
   const run = async (which: "images" | "video") => {
     if (busy) return;
@@ -80,6 +99,79 @@ export default function RegenerateControls({
     setBusy(null);
   };
 
+  // Records a fresh voice line (mic permission + a fixed REC_SECONDS take,
+  // same length as the original capture flow) and uploads it in place of the
+  // node's stored clip. Useful when the original recording was bad/empty/
+  // corrupt — a likely cause of a talking-head provider rejecting the audio
+  // outright (e.g. HeyGen's "Something went wrong with our voice providers").
+  const recordVoice = async () => {
+    if (busy || recording) return;
+    setVoiceMsg(null);
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      setVoiceMsg("Microphone permission denied or unavailable.");
+      return;
+    }
+
+    let mediaRec: MediaRecorder;
+    try {
+      mediaRec = new MediaRecorder(stream);
+    } catch (e) {
+      stream.getTracks().forEach((t) => t.stop());
+      setVoiceMsg(`Recording failed: ${(e as Error).message}`);
+      return;
+    }
+
+    const chunks: Blob[] = [];
+    mediaRec.ondataavailable = (e) => {
+      if (e.data.size) chunks.push(e.data);
+    };
+
+    setRecording(true);
+    setVoiceMsg(`Recording\u2026 (${REC_SECONDS}s)`);
+
+    const done = new Promise<Blob>((resolve) => {
+      mediaRec.onstop = () => {
+        resolve(new Blob(chunks, { type: mediaRec.mimeType || "audio/webm" }));
+      };
+    });
+
+    mediaRec.start();
+    await new Promise((r) => setTimeout(r, REC_SECONDS * 1000));
+    if (mediaRec.state === "recording") mediaRec.stop();
+    const blob = await done;
+    stream.getTracks().forEach((t) => t.stop());
+    setRecording(false);
+
+    setBusy("voice");
+    setVoiceMsg("Uploading\u2026");
+    let voice: string;
+    try {
+      // Same encode path as the capture flow, so the clip matches what the
+      // lip-sync provider expects.
+      voice = await polishVoice(blob);
+    } catch {
+      try {
+        voice = await blobToDataUrl(blob);
+      } catch {
+        setVoiceMsg("Could not encode the recording.");
+        setBusy(null);
+        return;
+      }
+    }
+
+    const ok = await replaceFashionVoice(id, voice);
+    if (ok) {
+      window.location.reload();
+    } else {
+      setVoiceMsg("Upload failed. Try again.");
+      setBusy(null);
+    }
+  };
+
   return (
     <section className="mt-16 border-t border-border pt-6">
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -110,13 +202,31 @@ export default function RegenerateControls({
         >
           {busy === "motion" ? "Generating\u2026" : "Generate motion clip (fal)"}
         </button>
+        <button
+          type="button"
+          onClick={recordVoice}
+          disabled={busy !== null || recording}
+          className="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
+        >
+          {recording
+            ? "Recording\u2026"
+            : busy === "voice"
+              ? "Uploading\u2026"
+              : "Re-record voice"}
+        </button>
       </div>
       {motionMsg && (
         <p className="mt-2 text-xs text-muted-foreground">{motionMsg}</p>
       )}
+      {voiceMsg && (
+        <p className="mt-2 text-xs text-muted-foreground">{voiceMsg}</p>
+      )}
       <p className="mt-2 text-xs text-muted-foreground">
         Regenerating the lip sync spends a lip-sync credit; the motion clip
-        spends a fal.ai credit.
+        spends a fal.ai credit. Re-recording the voice line replaces the
+        stored clip and clears the generated video so it can be rebuilt from
+        the new recording &mdash; useful if the talking-head provider is
+        rejecting the current clip.
       </p>
 
       {motionClips.length > 0 && (

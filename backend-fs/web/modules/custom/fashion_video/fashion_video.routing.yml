@@ -136,6 +136,18 @@ fashion_video.reset_video:
     _auth: ['oauth2', 'cookie']
     no_cache: 'TRUE'
 
+fashion_video.replace_voice:
+  path: '/fashion-video/{uuid}/replace-voice'
+  defaults:
+    _controller: 'Drupal\fashion_video\Controller\FashionVideoUploadController::replaceVoice'
+  methods: [POST]
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    uuid: '[0-9a-fA-F-]+'
+  options:
+    _auth: ['oauth2', 'cookie']
+    no_cache: 'TRUE'
+
 fashion_video.share:
   path: '/fashion-video/{uuid}/share'
   defaults:

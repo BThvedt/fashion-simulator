@@ -1356,6 +1356,55 @@ final class FashionVideoUploadController extends ControllerBase {
   }
 
   /**
+   * POST /fashion-video/{uuid}/replace-voice
+   *
+   * Debug/admin tool: replaces the stored voice recording (field_voice) with a
+   * freshly recorded clip, for when the original take was bad/corrupt/empty —
+   * a likely cause of a talking-head provider rejecting the audio outright
+   * (e.g. HeyGen's "Something went wrong with our voice providers" error).
+   *
+   * Also clears the generated video/clips and remembered talk state (mirrors
+   * ::resetVideo) so the next generation attempt actually uses the new clip
+   * instead of resuming or re-checking a job built from the old one.
+   *
+   * Body: {"voice": "data:audio/webm;base64,...."}
+   */
+  public function replaceVoice(Request $request, string $uuid): JsonResponse {
+    $node = $this->loadOwnedNode($uuid);
+    if (!$this->canRegenerate()) {
+      throw new AccessDeniedHttpException('Regenerate is not permitted for this account.');
+    }
+
+    $payload = json_decode($request->getContent(), TRUE);
+    $voice = is_array($payload) ? ($payload['voice'] ?? NULL) : NULL;
+    if (!is_string($voice) || $voice === '') {
+      throw new BadRequestHttpException('Expected a JSON body with a "voice" data URL.');
+    }
+
+    [$binary, $extension] = $this->decodeAudio($voice);
+
+    if ($node->hasField('field_voice') && !$node->get('field_voice')->isEmpty()) {
+      $old = $node->get('field_voice')->entity;
+      if ($old instanceof FileInterface) {
+        $this->entityTypeManager()->getStorage('file')->delete([$old->id() => $old]);
+      }
+    }
+
+    $file = $this->uploader->addFile($node, $binary, $extension, 'voice-');
+    $node->set('field_voice', ['target_id' => $file->id()]);
+
+    // The old voice line is gone, so any in-flight/finished talk clip built
+    // from it is stale — clear it the same way ::resetVideo does.
+    $this->clearMediaFields($node, ['field_generated_video', 'field_video_clips']);
+    $node->save();
+    $this->state->delete('fashion_video.did_talk.' . $node->id());
+    $this->state->delete('fashion_video.fal_motion.' . $node->id());
+    $this->state->delete(self::MOTION_SOURCE_STATE . $node->id());
+
+    return new JsonResponse(['status' => 'replaced']);
+  }
+
+  /**
    * Whether the current user may use the regenerate/debug endpoints.
    *
    * Gated to admins (bypass node access): regenerating the video spends a real
