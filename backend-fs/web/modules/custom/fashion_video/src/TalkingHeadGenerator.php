@@ -7,6 +7,7 @@ namespace Drupal\fashion_video;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\Core\Site\Settings;
 use GuzzleHttp\ClientInterface;
+use GuzzleHttp\Exception\RequestException;
 
 /**
  * Thin client for the D-ID Talks API (lip-synced "talking head" clips).
@@ -78,6 +79,16 @@ final class TalkingHeadGenerator implements TalkingHeadInterface {
       }
       return $id;
     }
+    catch (RequestException $e) {
+      // Guzzle truncates the response body in the exception message; log the
+      // full body so the exact error detail is visible in the report.
+      $body = $e->hasResponse() ? (string) $e->getResponse()->getBody() : '';
+      $this->logger->warning('D-ID create talk failed: @msg | response: @body', [
+        '@msg' => $e->getMessage(),
+        '@body' => substr($body, 0, 1500),
+      ]);
+      return NULL;
+    }
     catch (\Throwable $e) {
       $this->logger->warning('D-ID create talk failed: @msg', ['@msg' => $e->getMessage()]);
       return NULL;
@@ -111,6 +122,15 @@ final class TalkingHeadGenerator implements TalkingHeadInterface {
       $url = is_array($body) && is_string($body['result_url'] ?? NULL) ? $body['result_url'] : NULL;
       return ['status' => $status, 'result_url' => $url];
     }
+    catch (RequestException $e) {
+      $body = $e->hasResponse() ? (string) $e->getResponse()->getBody() : '';
+      $this->logger->warning('D-ID status check failed for @id: @msg | response: @body', [
+        '@id' => $talkId,
+        '@msg' => $e->getMessage(),
+        '@body' => substr($body, 0, 1000),
+      ]);
+      return ['status' => '', 'result_url' => NULL];
+    }
     catch (\Throwable $e) {
       $this->logger->warning('D-ID status check failed for @id: @msg', [
         '@id' => $talkId,
@@ -137,6 +157,14 @@ final class TalkingHeadGenerator implements TalkingHeadInterface {
       ]);
       $bytes = (string) $response->getBody();
       return $bytes !== '' ? $bytes : NULL;
+    }
+    catch (RequestException $e) {
+      $body = $e->hasResponse() ? (string) $e->getResponse()->getBody() : '';
+      $this->logger->warning('D-ID result download failed: @msg | response: @body', [
+        '@msg' => $e->getMessage(),
+        '@body' => substr($body, 0, 1500),
+      ]);
+      return NULL;
     }
     catch (\Throwable $e) {
       $this->logger->warning('D-ID result download failed: @msg', ['@msg' => $e->getMessage()]);

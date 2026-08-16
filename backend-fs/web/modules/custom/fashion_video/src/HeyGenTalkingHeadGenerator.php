@@ -168,6 +168,16 @@ final class HeyGenTalkingHeadGenerator implements TalkingHeadInterface {
       $bytes = (string) $response->getBody();
       return $bytes !== '' ? $bytes : NULL;
     }
+    catch (RequestException $e) {
+      // Guzzle truncates the response body in the exception message; log the
+      // full body so the exact error detail is visible in the report.
+      $body = $e->hasResponse() ? (string) $e->getResponse()->getBody() : '';
+      $this->logger->warning('HeyGen result download failed: @msg | response: @body', [
+        '@msg' => $e->getMessage(),
+        '@body' => substr($body, 0, 1500),
+      ]);
+      return NULL;
+    }
     catch (\Throwable $e) {
       $this->logger->warning('HeyGen result download failed: @msg', ['@msg' => $e->getMessage()]);
       return NULL;
