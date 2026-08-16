@@ -16,9 +16,13 @@ jobs:
           host: ${{ secrets.DO_HOST }}
           username: ${{ secrets.DO_USER }}
           key: ${{ secrets.DO_SSH_KEY }}
-          # Default is 10m, which the Docker image build (compiling PHP
-          # extensions) plus composer install/drush deploy can exceed.
-          command_timeout: 20m
+          # Shortened to fail fast rather than leaving a run hanging.
+          # NOTE: a cold Docker build (compiling PHP extensions from source
+          # after a Dockerfile change) has been observed taking well over
+          # 15m on the droplet, so a from-scratch build will very likely
+          # exceed this and get killed mid-build. Once an image layer is
+          # cached, subsequent deploys should comfortably fit in 5m.
+          command_timeout: 5m
           script: |
             set -e
             cd /home/deploy/fashion-simulator
