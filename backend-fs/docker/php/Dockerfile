@@ -3,13 +3,24 @@ FROM php:8.3-fpm
 # System libraries needed to build the Drupal PHP extensions, plus ffmpeg
 # (used by the fashion_video module to assemble the final video: muxing the
 # D-ID talking clip with the background song, Ken Burns montage, etc.).
+#
+# opcache's jit/zend_jit.c is a huge generated file that is extremely slow
+# to compile at -O2, and that alone was blowing past the deploy workflow's
+# SSH command timeout on the droplet. JIT itself is off at runtime by
+# default (opcache.jit_buffer_size=0, not set in drupal-opcache.ini below)
+# and gives negligible benefit to a request/response PHP-FPM app like
+# Drupal anyway, but building it with --disable-opcache-jit produces a
+# broken opcache.so on PHP 8.3 (undefined symbol: jit_globals), so instead
+# just build zend_jit.c at -O0 — still compiled in, but far faster — while
+# leaving every other extension at the image's normal -O2.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git unzip libzip-dev libpng-dev libjpeg-dev libfreetype6-dev \
         libwebp-dev libxml2-dev libonig-dev libicu-dev \
         ffmpeg \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
-    && docker-php-ext-install -j"$(nproc)" \
-        gd opcache pdo pdo_mysql zip intl bcmath \
+    && docker-php-ext-install -j"$(nproc)" gd pdo pdo_mysql zip intl bcmath \
+    && CFLAGS="-fpic -fpie -O0 -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64" \
+        docker-php-ext-install -j"$(nproc)" opcache \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Composer (so you can `composer install` against the bind-mounted code on deploy)

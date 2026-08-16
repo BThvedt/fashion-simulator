@@ -16,10 +16,25 @@ jobs:
           host: ${{ secrets.DO_HOST }}
           username: ${{ secrets.DO_USER }}
           key: ${{ secrets.DO_SSH_KEY }}
+          # Default is 10m, which the Docker image build (compiling PHP
+          # extensions) plus composer install/drush deploy can exceed.
+          command_timeout: 20m
           script: |
             set -e
             cd /home/deploy/fashion-simulator
-            git pull origin main
+            # DNS on the droplet can hiccup transiently ("Temporary failure
+            # in name resolution"); retry a few times before giving up. Fail
+            # hard if every attempt errors, so we never deploy stale code.
+            pull_ok=0
+            for i in 1 2 3; do
+              if git pull origin main; then pull_ok=1; break; fi
+              echo "git pull failed (attempt $i), retrying..."
+              sleep 5
+            done
+            if [ "$pull_ok" -ne 1 ]; then
+              echo "git pull failed after 3 attempts, aborting deploy." >&2
+              exit 1
+            fi
             cd backend-fs
             docker compose -f docker-compose.prod.yml up -d --build
             docker compose -f docker-compose.prod.yml exec -T php composer install --no-dev --optimize-autoloader
