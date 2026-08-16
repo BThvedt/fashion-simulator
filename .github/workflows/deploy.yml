@@ -16,13 +16,14 @@ jobs:
           host: ${{ secrets.DO_HOST }}
           username: ${{ secrets.DO_USER }}
           key: ${{ secrets.DO_SSH_KEY }}
-          # Shortened to fail fast rather than leaving a run hanging.
-          # NOTE: a cold Docker build (compiling PHP extensions from source
-          # after a Dockerfile change) has been observed taking well over
-          # 15m on the droplet, so a from-scratch build will very likely
-          # exceed this and get killed mid-build. Once an image layer is
-          # cached, subsequent deploys should comfortably fit in 5m.
-          command_timeout: 5m
+          # A cold Docker build (compiling PHP extensions from source, no
+          # cached layers) has been observed taking well over 20m on the
+          # droplet and getting killed mid-build at that timeout, before
+          # composer install/drush deploy even ran. Giving this one real
+          # headroom to finish end-to-end; once the image layers are cached,
+          # later deploys that don't touch the Dockerfile should be much
+          # faster and this can be ratcheted back down.
+          command_timeout: 30m
           script: |
             set -e
             cd /home/deploy/fashion-simulator
