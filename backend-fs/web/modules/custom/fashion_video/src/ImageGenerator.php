@@ -77,6 +77,10 @@ final class ImageGenerator {
       $facialHair,
     );
 
+    // The model tends to masculinize the face slightly; for a feminine subject
+    // nudge the features back to clearly (but naturally) feminine.
+    $base .= $this->feminineFeaturesInstruction($isFeminine);
+
     // One hairstyle direction per image so the set isn't three giant wigs:
     //   0) close to the reference hair, 1) deliberately small but funny,
     //   2) one wild look picked at random from a menu of big/weird cuts.
@@ -212,7 +216,106 @@ final class ImageGenerator {
       );
     }
 
+    if ($isFeminine) {
+      $this->applyFeminineMakeupFlourishes($prompts, $aesthetic);
+    }
+
     return $prompts;
+  }
+
+  /**
+   * Randomly layers a bit of extra fashion/makeup flair onto one of the
+   * three runway prompts for a feminine subject. Each flourish is rolled
+   * independently, so a generation may get none, one, or several — always
+   * flattering and editorial rather than garish, in keeping with the
+   * deadpan-absurd runway tone.
+   *
+   * @param array<int, string> $prompts
+   *   The three runway prompts, modified in place.
+   * @param string $aesthetic
+   *   The subject's aesthetic, used to keep on-theme flourishes relevant.
+   */
+  private function applyFeminineMakeupFlourishes(array &$prompts, string $aesthetic): void {
+    // Bolder, more common flourishes: 25% independent chance each.
+    $wildEyeshadows = [
+      'a bold graphic eyeshadow look in a vivid unexpected color (electric '
+      . 'blue, emerald green or violet), sharply blended and runway-editorial',
+      'a striking metallic/holographic eyeshadow in a saturated color, '
+      . 'high-fashion and precisely applied',
+      'a dramatic smoky eyeshadow in an unnatural bright hue, graphic and '
+      . 'editorial rather than everyday',
+    ];
+    $wildLipsticks = [
+      'a bold unconventional lip color (bright cobalt blue, deep emerald, or '
+      . 'matte black), precisely applied and fashion-forward',
+      'a striking graphic lip look in a saturated unexpected color, sharply '
+      . 'lined and editorial',
+      'a glossy, high-shine lip in a vivid unnatural color, runway-styled',
+    ];
+
+    if (random_int(1, 100) <= 25) {
+      $target = array_rand($prompts);
+      $prompts[$target] .= ' Give them ' . $wildEyeshadows[array_rand($wildEyeshadows)] . '.';
+    }
+    if (random_int(1, 100) <= 25) {
+      $target = array_rand($prompts);
+      $prompts[$target] .= ' Give them ' . $wildLipsticks[array_rand($wildLipsticks)] . '.';
+    }
+
+    // Subtler, rarer flourishes: independent 1-in-8 (12.5%) chance each — a
+    // little extra fashion/makeup detail, still flattering and on-theme
+    // rather than guaranteed or garish.
+    $blushOptions = [
+      'a flush of bold, visible blush in a bright unexpected shade (coral, '
+      . 'fuchsia, or terracotta), swept high on the cheekbones for editorial '
+      . 'impact (flattering, not garish)',
+      'a graphic blush placement — draped low and wide across the cheeks and '
+      . 'nose in a vivid color, runway-styled rather than natural (flattering, '
+      . 'not garish)',
+    ];
+    $bigEyeOptions = [
+      'a dramatic "big-eye" makeup style — pale shimmering inner-corner '
+      . 'highlight, precise winged liner, and full false lashes making the eyes '
+      . 'look large and doll-like (flattering, editorial, not overdone)',
+      'an exaggerated doe-eyed makeup look with heavy upper and lower lashes and '
+      . 'a bright highlighted under-eye, giving the eyes a huge, wide-open '
+      . 'effect (flattering, editorial, not overdone)',
+    ];
+    $earringOptions = [
+      'bold, oversized statement earrings that suit the aesthetic (chandelier, '
+      . 'hoop, or sculptural), and — if it fits the look — an extra visible '
+      . 'ear or nose piercing or two',
+      'dramatic asymmetric earrings — different on each ear — plus an extra '
+      . 'visible piercing if it suits the aesthetic',
+    ];
+    $eyebrowOptions = [
+      'a distinctive eyebrow style matching the aesthetic — fully '
+      . 'bleached/invisible brows, sharply geometric drawn-on brows, or thin '
+      . '90s-style arches',
+      'boldly laminated, feathered-up "soap brows" or a high-shine gelled brow '
+      . 'for a dramatic editorial finish',
+    ];
+    $themedMakeupOptions = [
+      sprintf(
+        'a small on-theme makeup detail that nods to the "%s" aesthetic — '
+        . 'think face gems, fine glitter placement, or a graphic liner motif '
+        . 'inspired by the look',
+        $aesthetic,
+      ),
+      sprintf(
+        'a subtle on-theme makeup flourish tying back to the "%s" aesthetic, '
+        . 'such as a painted-on motif, metallic pigment, or an unexpected '
+        . 'accent color drawn from the styling',
+        $aesthetic,
+      ),
+    ];
+
+    foreach ([$blushOptions, $bigEyeOptions, $earringOptions, $eyebrowOptions, $themedMakeupOptions] as $options) {
+      if (random_int(1, 8) === 1) {
+        $target = array_rand($prompts);
+        $prompts[$target] .= ' Give them ' . $options[array_rand($options)] . '.';
+      }
+    }
   }
 
   /**
@@ -235,7 +338,18 @@ final class ImageGenerator {
       ? sprintf(' or that appears among the suggested props (%s)', implode(', ', $props))
       : '';
 
-    return sprintf(
+    $isFeminine = strtolower(trim((string) ($analysis['presentation'] ?? ''))) === 'feminine';
+    // Sharpening the jaw tends to masculinize a feminine face, so soften that
+    // direction for a feminine subject while still flattering the cheekbones.
+    $sculpt = $isFeminine
+      ? ' subtly emphasize the cheekbones with soft contour and light, keeping '
+        . 'the jawline and CHIN soft and true to the reference — do not '
+        . 'strengthen, widen or emphasize the chin — and keeping delicate '
+        . 'features (flattering, never masculinized or grotesque).'
+      : ' subtly emphasize the cheekbones and jawline with sculpting contour and '
+        . 'light so they look a bit sharper (flattering, not grotesque).';
+
+    $prompt = sprintf(
       'Ultra-glossy high-fashion BEAUTY CLOSEUP portrait, an intentionally absurd '
       . 'and humorous parody of an over-produced Balenciaga campaign — deadpan '
       . 'serious yet ridiculous. Keep the SAME person as the reference image and '
@@ -247,9 +361,7 @@ final class ImageGenerator {
       . 'keep it and restyle it to fit the aesthetic; a chic hat or headpiece is also '
       . 'welcome if it suits the look%s. Restyle them into the '
       . '"%s" aesthetic, borrowing the same couture styling as the runway '
-      . 'looks%s. Tight head-and-shoulders framing; subtly '
-      . 'emphasize the cheekbones and jawline with sculpting contour and light so '
-      . 'they look a bit sharper (flattering, not grotesque). Dramatic beauty '
+      . 'looks%s. Tight head-and-shoulders framing;%s Dramatic beauty '
       . 'lighting, cinematic, hyper-detailed, luxury magazine quality. Do NOT '
       . 'render any text, letters, words, numbers, captions, watermarks, logos, '
       . 'or signage anywhere in the image.',
@@ -257,7 +369,29 @@ final class ImageGenerator {
       $propsHint,
       $aesthetic,
       $accessory !== '' ? sprintf(', accessorized with %s', $accessory) : '',
+      $sculpt,
     );
+
+    return $prompt . $this->feminineFeaturesInstruction($isFeminine);
+  }
+
+  /**
+   * Returns a clause nudging generated facial features toward clearly (but
+   * natural-looking) feminine when the subject presents feminine; otherwise an
+   * empty string. The image model tends to drift slightly masculine, so this
+   * counteracts that without changing the person's identity.
+   */
+  private function feminineFeaturesInstruction(bool $isFeminine): string {
+    if (!$isFeminine) {
+      return '';
+    }
+    return ' Render the face with clearly FEMININE features, staying close to '
+      . 'the reference subject\'s own face rather than a generic makeover: keep '
+      . 'the CHIN and jawline soft and true to the reference — do NOT '
+      . 'strengthen, widen, sharpen or otherwise emphasize the chin — while '
+      . 'keeping a gentle emphasis on the CHEEKBONES via subtle contour, and '
+      . 'keeping the brow and lips soft and delicate. Gently more feminine and '
+      . 'never masculinized, while still unmistakably the same person.';
   }
 
   /**
