@@ -916,3 +916,62 @@
     animation: none;
   }
 }
+
+/* ---------- mobile: taller stage so overlays/buttons fit ---------- */
+@media (max-width: 640px) {
+  .stage {
+    aspect-ratio: 4 / 5;
+    max-height: none;
+  }
+  .ready,
+  .voiceUi {
+    justify-content: flex-start;
+    gap: 14px;
+    padding: 3.25rem 1rem 1.25rem;
+    overflow-y: auto;
+  }
+  .start,
+  .ready,
+  .voiceUi {
+    box-sizing: border-box;
+    text-align: center;
+    align-items: safe center;
+  }
+  .start h1,
+  .start p,
+  .ready h2,
+  .ready p,
+  .voiceUi h2 {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    text-align: center;
+  }
+  .video {
+    object-position: center;
+  }
+  .voiceUi {
+    padding-top: 2.25rem;
+    gap: 10px;
+  }
+  .voiceIntro {
+    gap: 10px;
+  }
+  .voiceUi .chips {
+    gap: 6px;
+  }
+  .voiceUi .chip {
+    padding: 5px 12px;
+  }
+  .micWrap {
+    width: 104px;
+    height: 104px;
+    margin-top: 2px;
+  }
+  .micBtn {
+    inset: 8px;
+  }
+  .micBtn svg {
+    width: 36px;
+    height: 36px;
+  }
+}
